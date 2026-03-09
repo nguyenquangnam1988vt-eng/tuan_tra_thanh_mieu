@@ -34,8 +34,7 @@ authenticator = stauth.Authenticate(
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 st.title("🚔 Hệ thống theo dõi và phối hợp tuần tra")
 
-result = authenticator.login('main')
-st.write(result)
+name, authentication_status, username = authenticator.login(location='main')
 
 if authentication_status == False:
     st.error("Sai tên đăng nhập hoặc mật khẩu")
