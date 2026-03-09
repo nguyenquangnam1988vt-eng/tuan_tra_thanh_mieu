@@ -193,7 +193,7 @@ with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)")
             st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
 
 # ==============================
-# 7. HÀM LOAD DỮ LIỆU (ĐÃ SỬA LỖI)
+# 7. HÀM LOAD DỮ LIỆU
 # ==============================
 
 def safe_get(node):
@@ -217,7 +217,6 @@ def load_all_markers():
             for uid, user_markers in all_markers.items():
                 if user_markers and isinstance(user_markers, dict):
                     for key, marker in user_markers.items():
-                        # Chỉ thêm nếu marker có timestamp và là số
                         if isinstance(marker, dict) and marker.get("timestamp"):
                             markers_dict[key] = marker
         return markers_dict
@@ -231,7 +230,7 @@ def load_all_markers():
 st_autorefresh(interval=5000, key="auto_refresh")
 
 # ==============================
-# 9. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA – TỰ ĐỘNG ZOOM VÀO BẠN)
+# 9. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA HOÀN CHỈNH)
 # ==============================
 
 map_html = f"""
@@ -264,23 +263,40 @@ map_html = f"""
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // 👇 Thêm biến username của người dùng hiện tại
+    // 👇 Username hiện tại
     const myUsername = "{username}";
-    console.log("My username:", myUsername);
+    console.log("🔍 My username:", myUsername);
 
-    // Khởi tạo bản đồ với view mặc định (sẽ được zoom sau)
+    // Khởi tạo map với view mặc định
     const map = L.map('map').setView([21.0285, 105.8542], 13);
     L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
         attribution: '&copy; OpenStreetMap'
     }}).addTo(map);
 
-    // Objects lưu các marker
+    // Objects lưu marker
     const officerMarkers = {{}};
     const alertMarkers = {{}};
     const pointMarkers = {{}};
 
-    // Biến flag để chỉ zoom một lần khi chính mình xuất hiện
+    // Biến flag để tránh zoom nhiều lần
     let zoomedToMe = false;
+
+    // ===== FALLBACK: LẤY GPS NGAY LẬP TỨC =====
+    if (navigator.geolocation) {{
+        navigator.geolocation.getCurrentPosition(
+            (position) => {{
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                console.log(`📍 GPS fallback: (${{lat}}, ${{lng}})`);
+                if (!zoomedToMe) {{
+                    map.setView([lat, lng], 16);
+                    zoomedToMe = true;
+                }}
+            }},
+            (error) => console.warn("⚠️ GPS fallback error:", error),
+            {{ enableHighAccuracy: true, timeout: 10000 }}
+        );
+    }}
 
     // ===== 1. OFFICERS =====
     const officersRef = ref(db, 'officers');
@@ -288,7 +304,7 @@ map_html = f"""
     onChildAdded(officersRef, (data) => {{
         const officer = data.val();
         const id = data.key;
-        console.log(`Officer added: ${{id}}`, officer);
+        console.log(`👤 Officer added: ${{id}}`, officer);
 
         const marker = L.circleMarker([officer.lat, officer.lng], {{
             radius: 8,
@@ -305,11 +321,11 @@ map_html = f"""
         }});
         officerMarkers[id] = marker;
 
-        // Nếu là chính mình và chưa zoom, thì zoom vào vị trí của mình
+        // Zoom vào chính mình khi xuất hiện lần đầu
         if (id === myUsername && !zoomedToMe) {{
             map.setView([officer.lat, officer.lng], 16);
             zoomedToMe = true;
-            console.log("Zoomed to my location");
+            console.log("✅ Zoomed to my location from Firebase");
         }}
     }});
 
@@ -320,7 +336,7 @@ map_html = f"""
             officerMarkers[id].setLatLng([officer.lat, officer.lng]);
             officerMarkers[id].setTooltipContent(officer.name);
 
-            // Nếu là mình, di chuyển map theo (giữ nguyên zoom)
+            // Di chuyển map theo nếu là mình
             if (id === myUsername) {{
                 map.setView([officer.lat, officer.lng], map.getZoom());
             }}
@@ -391,9 +407,8 @@ map_html = f"""
         }});
     }});
 
-    // ===== 4. THÊM ĐIỂM BẰNG NHẤN GIỮ =====
+    // ===== 4. THÊM ĐIỂM BẰNG NHẤN GIỮ (ĐÃ XÓA ONDISCONNECT GÂY LỖI) =====
     let pressTimer;
-    // Desktop: click chuột phải
     map.on('contextmenu', (e) => {{
         e.originalEvent.preventDefault();
         const note = prompt("Nhập ghi chú cho điểm này:");
@@ -407,10 +422,8 @@ map_html = f"""
             }};
             const userMarkerRef = ref(db, 'markers/{username}');
             push(userMarkerRef, newPoint);
-            onDisconnect(ref(db, 'markers/{username}')).remove();
         }}
     }});
-    // Mobile: nhấn giữ 5 giây
     map.on('touchstart', (e) => {{
         pressTimer = setTimeout(() => {{
             const note = prompt("Nhập ghi chú cho điểm này:");
@@ -424,14 +437,12 @@ map_html = f"""
                 }};
                 const userMarkerRef = ref(db, 'markers/{username}');
                 push(userMarkerRef, newPoint);
-                onDisconnect(ref(db, 'markers/{username}')).remove();
             }}
         }}, 5000);
     }});
     map.on('touchend', () => clearTimeout(pressTimer));
     map.on('touchcancel', () => clearTimeout(pressTimer));
 
-    // Không cần firstOfficer nữa vì đã có zoomedToMe
     </script>
 </head>
 <body>
@@ -459,14 +470,13 @@ else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí")
 
 # ==============================
-# 11. ĐIỂM ĐÁNH DẤU GẦN ĐÂY (ĐÃ SỬA LỖI)
+# 11. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
 # ==============================
 
 all_markers = load_all_markers()
 
 with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
     if all_markers:
-        # Lọc các marker có timestamp hợp lệ
         valid_markers = {k: v for k, v in all_markers.items() 
                         if isinstance(v, dict) and v.get("timestamp")}
         if valid_markers:
