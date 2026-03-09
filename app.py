@@ -302,7 +302,7 @@ map_html = f"""
         marker.bindTooltip(officer.name, {{
             permanent: true,
             direction: 'top',
-            offset: [0, -15],
+            offset: [0, -5],
             className: 'officer-label'
         }});
         
