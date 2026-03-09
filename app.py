@@ -6,23 +6,12 @@ import pyrebase
 import json
 import time
 from streamlit_autorefresh import st_autorefresh
-import requests  # Thêm để test
 
 # ==============================
 # 1. CẤU HÌNH FIREBASE
 # ==============================
 
 firebase_config = dict(st.secrets["firebase"])
-
-# Thử test kết nối trực tiếp đến database URL
-try:
-    test_url = firebase_config.get("databaseURL") + "/.json"
-    response = requests.get(test_url, timeout=5)
-    if response.status_code != 200:
-        st.warning(f"Không thể kết nối Firebase (status {response.status_code}). Kiểm tra databaseURL và rules.")
-except Exception as e:
-    st.warning(f"Lỗi kết nối Firebase: {e}")
-
 firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
 
@@ -86,11 +75,12 @@ with col1:
     else:
         if st.button("🛑 Dừng chia sẻ"):
             db.child("officers").child(username).remove()
+            db.child("alerts").child(username).remove()  # Xóa alert khi dừng
             st.session_state.sharing = False
             st.rerun()
 
 # ==============================
-# 5. JAVASCRIPT LẤY GPS
+# 5. JAVASCRIPT LẤY GPS VÀ XỬ LÝ BÁO ĐỘNG
 # ==============================
 
 if st.session_state.sharing:
@@ -99,7 +89,7 @@ if st.session_state.sharing:
     <script type="module">
 
     import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-    import {{ getDatabase, ref, set, onDisconnect }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+    import {{ getDatabase, ref, set, onDisconnect, onChildAdded }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
     const firebaseConfig = {json.dumps(firebase_config)};
 
@@ -109,6 +99,7 @@ if st.session_state.sharing:
     const username = "{username}";
     const officerName = "{name}";
 
+    // ===== XỬ LÝ GPS =====
     if (navigator.geolocation) {{
 
         navigator.geolocation.watchPosition(
@@ -144,12 +135,33 @@ if st.session_state.sharing:
         );
     }}
 
+    // ===== XỬ LÝ BÁO ĐỘNG =====
+    // Lắng nghe yêu cầu báo động từ Python
+    const alertRequestsRef = ref(database, 'alert_requests');
+    onChildAdded(alertRequestsRef, (data) => {{
+        const req = data.val();
+        if (req.username === username) {{
+            // Tạo alert trong node riêng của user
+            const alertRef = ref(database, 'alerts/' + username);
+            set(alertRef, {{
+                name: req.name,
+                lat: req.lat,
+                lng: req.lng,
+                timestamp: req.timestamp
+            }});
+            // Xóa request sau khi xử lý
+            set(ref(database, 'alert_requests/' + data.key), null);
+            // Thiết lập onDisconnect để xóa alert khi offline
+            onDisconnect(alertRef).remove();
+        }}
+    }});
+
     </script>
 
-    <div>📡 Đang chia sẻ vị trí...</div>
+    <div style="text-align: center; color: green;">📡 Đang chia sẻ vị trí...</div>
     """
 
-    st.components.v1.html(gps_script, height=40)
+    st.components.v1.html(gps_script, height=60)
 
 # ==============================
 # 6. SIDEBAR CÔNG CỤ
@@ -168,17 +180,15 @@ if st.sidebar.button("🚨 Gửi báo động"):
 
     if user_data:
 
-        alert_data = {
-            "from": username,
+        request_data = {
+            "username": username,
             "name": name,
             "lat": user_data["lat"],
             "lng": user_data["lng"],
-            "timestamp": int(time.time() * 1000),
+            "timestamp": int(time.time() * 1000)
         }
-
-        db.child("alerts").push(alert_data)
-
-        st.sidebar.success("Đã gửi báo động")
+        db.child("alert_requests").push(request_data)
+        st.sidebar.success("Đã gửi yêu cầu báo động")
 
     else:
 
@@ -188,182 +198,265 @@ if st.sidebar.button("🚨 Gửi báo động"):
 # ĐÁNH DẤU ĐIỂM
 # ==============================
 
-with st.sidebar.expander("📍 Đánh dấu điểm"):
+with st.sidebar.expander("📍 Đánh dấu điểm (click giữ bản đồ)"):
 
-    current = db.child("officers").child(username).get().val()
-
-    lat = current["lat"] if current else 21.0285
-    lng = current["lng"] if current else 105.8542
-
-    lat_input = st.number_input("Vĩ độ", value=lat, format="%.6f")
-    lng_input = st.number_input("Kinh độ", value=lng, format="%.6f")
-
-    note = st.text_area("Ghi chú")
-
-    if st.button("Thêm điểm"):
-
-        if note.strip() == "":
-            st.warning("Nhập ghi chú")
-
-        else:
-
+    st.caption("Trên bản đồ: nhấn giữ 5 giây để thêm điểm")
+    note = st.text_area("Ghi chú (nếu thêm bằng sidebar)")
+    if st.button("Thêm điểm tại vị trí hiện tại"):
+        current = db.child("officers").child(username).get().val()
+        if current and note.strip():
             marker_data = {
                 "created_by": name,
-                "lat": lat_input,
-                "lng": lng_input,
+                "lat": current["lat"],
+                "lng": current["lng"],
                 "note": note,
-                "timestamp": int(time.time() * 1000),
+                "timestamp": int(time.time() * 5000),
             }
-
             db.child("markers").push(marker_data)
-
             st.sidebar.success("Đã thêm điểm")
+        else:
+            st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
 
 # ==============================
-# 7. HÀM LOAD DỮ LIỆU VỚI XỬ LÝ LỖI
+# 7. HÀM LOAD DỮ LIỆU
 # ==============================
 
 def safe_get(node):
     try:
         result = db.child(node).get().val()
-        if result is None:
-            return {}
-        return result
+        return result if result else {}
     except Exception as e:
-        st.error(f"Lỗi khi đọc dữ liệu từ Firebase ({node}): {e}")
+        st.error(f"Lỗi Firebase: {e}")
         return {}
 
-# Sử dụng cache nhưng vẫn có fallback
 @st.cache_data(ttl=5)
 def load_officers():
     return safe_get("officers")
-
-@st.cache_data(ttl=5)
-def load_alerts():
-    return safe_get("alerts")
 
 @st.cache_data(ttl=5)
 def load_markers():
     return safe_get("markers")
 
 # ==============================
-# 8. TỰ ĐỘNG REFRESH
+# 8. TỰ ĐỘNG REFRESH (cho danh sách online)
 # ==============================
 st_autorefresh(interval=5000, key="auto_refresh")
 
 # ==============================
-# 9. HTML BẢN ĐỒ REALTIME
+# 9. HTML BẢN ĐỒ REALTIME (đã sửa theo yêu cầu)
 # ==============================
 
 map_html = f"""
 <!DOCTYPE html>
 <html>
-
 <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #map {{ height: 600px; width: 100%; }}
+        .leaflet-tooltip {{
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            font-weight: bold;
+            color: #333;
+            text-shadow: 1px 1px 2px white;
+            font-size: 12px;
+            margin-top: -15px !important;
+        }}
+    </style>
+    <script type="module">
+    import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, set, push, serverTimestamp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-<meta charset="utf-8"/>
+    const firebaseConfig = {json.dumps(firebase_config)};
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<script type="module">
-
-import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
-
-const firebaseConfig = {json.dumps(firebase_config)};
-
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-
-const map = L.map('map').setView([21.0285,105.8542],13);
-
-L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(map);
-
-const markers = {{}};
-const circles = {{}};
-
-let firstOfficer = true;
-
-const officersRef = ref(db,'officers');
-
-onChildAdded(officersRef,(data)=>{{
-
-    const officer = data.val();
-    const id = data.key;
-
-    const marker = L.marker([officer.lat,officer.lng]).addTo(map);
-    marker.bindPopup(`<b>${{officer.name}}</b>`);
-
-    const circle = L.circle([officer.lat,officer.lng],{{
-        radius: officer.accuracy,
-        color:'blue',
-        fillOpacity:0.1
+    // Khởi tạo bản đồ
+    const map = L.map('map').setView([21.0285, 105.8542], 13);
+    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+        attribution: '&copy; OpenStreetMap'
     }}).addTo(map);
 
-    markers[id] = marker;
-    circles[id] = circle;
+    // Objects lưu các marker
+    const officerMarkers = {{}};      // chấm xanh + tên
+    const alertMarkers = {{}};        // chấm đỏ
+    const pointMarkers = {{}};        // chấm vàng
 
-    if (firstOfficer) {{
-        map.setView([officer.lat, officer.lng], 15);
-        firstOfficer = false;
-    }}
+    // ===== 1. XỬ LÝ OFFICERS (CÁN BỘ) =====
+    const officersRef = ref(db, 'officers');
+    
+    onChildAdded(officersRef, (data) => {{
+        const officer = data.val();
+        const id = data.key;
+        
+        // Tạo chấm tròn xanh nhỏ (circleMarker)
+        const marker = L.circleMarker([officer.lat, officer.lng], {{
+            radius: 8,
+            color: '#3388ff',
+            fillColor: '#3388ff',
+            fillOpacity: 0.8,
+            weight: 1
+        }}).addTo(map);
+        
+        // Tooltip hiển thị tên phía trên
+        marker.bindTooltip(officer.name, {{
+            permanent: true,
+            direction: 'top',
+            offset: [0, -15],
+            className: 'officer-label'
+        }});
+        
+        officerMarkers[id] = marker;
+    }});
+    
+    onChildChanged(officersRef, (data) => {{
+        const officer = data.val();
+        const id = data.key;
+        if (officerMarkers[id]) {{
+            officerMarkers[id].setLatLng([officer.lat, officer.lng]);
+            officerMarkers[id].setTooltipContent(officer.name);
+        }}
+    }});
+    
+    onChildRemoved(officersRef, (data) => {{
+        const id = data.key;
+        if (officerMarkers[id]) {{
+            map.removeLayer(officerMarkers[id]);
+            delete officerMarkers[id];
+        }}
+    }});
 
-}});
+    // ===== 2. XỬ LÝ ALERTS (BÁO ĐỘNG) =====
+    const alertsRef = ref(db, 'alerts');
+    
+    onChildAdded(alertsRef, (data) => {{
+        const alert = data.val();
+        const id = data.key;
+        
+        // Chấm đỏ nhỏ
+        const marker = L.circleMarker([alert.lat, alert.lng], {{
+            radius: 8,
+            color: '#ff4444',
+            fillColor: '#ff4444',
+            fillOpacity: 0.8,
+            weight: 1
+        }}).addTo(map);
+        
+        marker.bindTooltip(`🚨 ${alert.name}`, {{
+            permanent: true,
+            direction: 'top',
+            offset: [0, -15]
+        }});
+        
+        alertMarkers[id] = marker;
+    }});
+    
+    onChildRemoved(alertsRef, (data) => {{
+        const id = data.key;
+        if (alertMarkers[id]) {{
+            map.removeLayer(alertMarkers[id]);
+            delete alertMarkers[id];
+        }}
+    }});
 
-onChildChanged(officersRef,(data)=>{{
+    // ===== 3. XỬ LÝ MARKERS (ĐIỂM ĐÁNH DẤU) =====
+    const markersRef = ref(db, 'markers');
+    
+    onChildAdded(markersRef, (data) => {{
+        const point = data.val();
+        const id = data.key;
+        
+        // Chấm vàng nhỏ
+        const marker = L.circleMarker([point.lat, point.lng], {{
+            radius: 6,
+            color: '#ffaa00',
+            fillColor: '#ffaa00',
+            fillOpacity: 0.8,
+            weight: 1
+        }}).addTo(map);
+        
+        marker.bindPopup(`<b>${point.created_by}</b><br>${point.note}<br>${new Date(point.timestamp).toLocaleString()}`);
+        
+        pointMarkers[id] = marker;
+    }});
+    
+    onChildRemoved(markersRef, (data) => {{
+        const id = data.key;
+        if (pointMarkers[id]) {{
+            map.removeLayer(pointMarkers[id]);
+            delete pointMarkers[id];
+        }}
+    }});
 
-    const officer = data.val();
-    const id = data.key;
+    // ===== 4. THÊM ĐIỂM BẰNG CÁCH NHẤN GIỮ BẢN ĐỒ =====
+    let pressTimer;
+    
+    map.on('contextmenu', (e) => {{
+        // Click chuột phải (desktop)
+        e.originalEvent.preventDefault();
+        const note = prompt("Nhập ghi chú cho điểm này:");
+        if (note && note.trim()) {{
+            const newPoint = {{
+                created_by: "{name}",
+                lat: e.latlng.lat,
+                lng: e.latlng.lng,
+                note: note,
+                timestamp: Date.now()
+            }};
+            push(ref(db, 'markers'), newPoint);
+        }}
+    }});
+    
+    map.on('touchstart', (e) => {{
+        // Bắt đầu nhấn giữ trên mobile
+        pressTimer = setTimeout(() => {{
+            const note = prompt("Nhập ghi chú cho điểm này:");
+            if (note && note.trim()) {{
+                const newPoint = {{
+                    created_by: "{name}",
+                    lat: e.latlng.lat,
+                    lng: e.latlng.lng,
+                    note: note,
+                    timestamp: Date.now()
+                }};
+                push(ref(db, 'markers'), newPoint);
+            }}
+        }}, 5000); // 5 giây
+    }});
+    
+    map.on('touchend', (e) => {{
+        clearTimeout(pressTimer);
+    }});
+    
+    map.on('touchcancel', (e) => {{
+        clearTimeout(pressTimer);
+    }});
 
-    if(markers[id]){{
-        markers[id].setLatLng([officer.lat,officer.lng]);
-        circles[id].setLatLng([officer.lat,officer.lng]);
-        circles[id].setRadius(officer.accuracy);
-    }}
-
-}});
-
-onChildRemoved(officersRef,(data)=>{{
-
-    const id = data.key;
-
-    if(markers[id]){{
-        map.removeLayer(markers[id]);
-        map.removeLayer(circles[id]);
-        delete markers[id];
-        delete circles[id];
-    }}
-
-}});
-
-</script>
-
-<style>
-
-#map{{
-height:600px;
-width:100%;
-}}
-
-</style>
-
+    // Tự động zoom đến cán bộ đầu tiên khi có dữ liệu
+    let firstOfficer = true;
+    onChildAdded(officersRef, (data) => {{
+        if (firstOfficer) {{
+            const officer = data.val();
+            map.setView([officer.lat, officer.lng], 15);
+            firstOfficer = false;
+        }}
+    }});
+    </script>
 </head>
-
 <body>
-
-<div id="map"></div>
-
+    <div id="map"></div>
 </body>
-
 </html>
 """
 
 st.components.v1.html(map_html, height=620)
 
 # ==============================
-# 10. DANH SÁCH ONLINE
+# 10. DANH SÁCH CÁN BỘ ONLINE
 # ==============================
 
 officers = load_officers()
@@ -372,39 +465,26 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("👥 Cán bộ trực tuyến")
 
 if officers:
-
     for uid, info in officers.items():
-
         label = "(bạn)" if uid == username else ""
-
         st.sidebar.write(f"• {info['name']} {label}")
-
 else:
-
     st.sidebar.write("Chưa có ai chia sẻ vị trí")
 
 # ==============================
-# 11. ALERT GẦN ĐÂY
+# 11. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
 # ==============================
 
-alerts = load_alerts()
+markers = load_markers()
 
-with st.sidebar.expander("📋 Báo động gần đây"):
-
-    if alerts:
-
-        sorted_alerts = sorted(
-            alerts.items(),
+with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
+    if markers:
+        sorted_markers = sorted(
+            markers.items(),
             key=lambda x: x[1]["timestamp"],
             reverse=True
         )[:5]
-
-        for _, alert in sorted_alerts:
-
-            st.write(
-                f"🚨 {alert['name']} - {time.ctime(alert['timestamp']/1000)}"
-            )
-
+        for _, m in sorted_markers:
+            st.write(f"📍 {m['created_by']}: {m['note'][:30]}...")
     else:
-
-        st.write("Chưa có báo động")
+        st.write("Chưa có điểm đánh dấu")
