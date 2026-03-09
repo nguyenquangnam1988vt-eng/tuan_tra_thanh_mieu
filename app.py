@@ -646,7 +646,7 @@ with tab2:
     with st.form("chat_form", clear_on_submit=True):
         col1, col2 = st.columns([5, 1])
         with col1:
-            message = st.text_input("", placeholder="Nhập tin nhắn...", label_visibility="collapsed")
+            message = st.text_input("Tin nhắn", placeholder="Nhập tin nhắn...", label_visibility="collapsed")
         with col2:
             sent = st.form_submit_button("Gửi")
         if sent and message.strip():
