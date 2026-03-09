@@ -182,20 +182,18 @@ with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)")
         if current and note.strip():
             marker_data = {
                 "created_by": name,
-                "created_by_uid": username,
                 "lat": current["lat"],
                 "lng": current["lng"],
                 "note": note,
                 "timestamp": int(time.time() * 1000),
             }
-            # Lưu dưới node markers/{username}
             db.child("markers").child(username).push(marker_data)
             st.sidebar.success("Đã thêm điểm")
         else:
             st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
 
 # ==============================
-# 7. HÀM LOAD DỮ LIỆU
+# 7. HÀM LOAD DỮ LIỆU (ĐÃ SỬA LỖI)
 # ==============================
 
 def safe_get(node):
@@ -210,19 +208,21 @@ def safe_get(node):
 def load_officers():
     return safe_get("officers")
 
-# Load markers từ tất cả user (để hiển thị)
 def load_all_markers():
+    """Lấy tất cả markers từ tất cả user, chỉ lấy marker có timestamp hợp lệ"""
     markers_dict = {}
     try:
-        # Lấy tất cả markers dưới dạng {username: { ... }}
         all_markers = db.child("markers").get().val()
         if all_markers:
             for uid, user_markers in all_markers.items():
-                if user_markers:
+                if user_markers and isinstance(user_markers, dict):
                     for key, marker in user_markers.items():
-                        markers_dict[key] = marker
+                        # Chỉ thêm nếu marker có timestamp và là số
+                        if isinstance(marker, dict) and marker.get("timestamp"):
+                            markers_dict[key] = marker
         return markers_dict
-    except:
+    except Exception as e:
+        st.error(f"Lỗi đọc markers: {e}")
         return {}
 
 # ==============================
@@ -231,7 +231,7 @@ def load_all_markers():
 st_autorefresh(interval=5000, key="auto_refresh")
 
 # ==============================
-# 9. HTML BẢN ĐỒ REALTIME
+# 9. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA)
 # ==============================
 
 map_html = f"""
@@ -253,11 +253,12 @@ map_html = f"""
             text-shadow: 1px 1px 2px white;
             font-size: 12px;
             margin-top: -15px !important;
+            white-space: nowrap;
         }}
     </style>
     <script type="module">
     import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-    import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, set, push, onDisconnect }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+    import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, push, onDisconnect }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
     const firebaseConfig = {json.dumps(firebase_config)};
     const app = initializeApp(firebaseConfig);
@@ -274,7 +275,7 @@ map_html = f"""
     const alertMarkers = {{}};
     const pointMarkers = {{}};
 
-    // ===== 1. XỬ LÝ OFFICERS =====
+    // ===== 1. OFFICERS =====
     const officersRef = ref(db, 'officers');
     onChildAdded(officersRef, (data) => {{
         const officer = data.val();
@@ -310,7 +311,7 @@ map_html = f"""
         }}
     }});
 
-    // ===== 2. XỬ LÝ ALERTS =====
+    // ===== 2. ALERTS =====
     const alertsRef = ref(db, 'alerts');
     onChildAdded(alertsRef, (data) => {{
         const alert = data.val();
@@ -337,17 +338,16 @@ map_html = f"""
         }}
     }});
 
-    // ===== 3. XỬ LÝ MARKERS (ĐIỂM ĐÁNH DẤU) =====
-    // Lắng nghe tất cả markers từ mọi user: dùng wildcard? Thực tế Firebase không hỗ trợ lắng nghe tất cả con cháu, 
-    // nên ta lắng nghe từng user một. Cách đơn giản: lắng nghe node 'markers' và duyệt các user con.
+    // ===== 3. MARKERS (ĐIỂM ĐÁNH DẤU) =====
+    // Theo dõi tất cả markers từ mọi user
     const markersRootRef = ref(db, 'markers');
-    // Dùng onChildAdded cho từng user
     onChildAdded(markersRootRef, (userSnapshot) => {{
         const userId = userSnapshot.key;
         const userMarkersRef = ref(db, `markers/${{userId}}`);
         onChildAdded(userMarkersRef, (markerSnapshot) => {{
             const point = markerSnapshot.val();
             const markerId = markerSnapshot.key;
+            const fullId = `${{userId}}_${{markerId}}`;
             const marker = L.circleMarker([point.lat, point.lng], {{
                 radius: 6,
                 color: '#ffaa00',
@@ -356,7 +356,7 @@ map_html = f"""
                 weight: 1
             }}).addTo(map);
             marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
-            pointMarkers[`${{userId}}_${{markerId}}`] = marker;
+            pointMarkers[fullId] = marker;
         }});
         onChildRemoved(userMarkersRef, (markerSnapshot) => {{
             const markerId = markerSnapshot.key;
@@ -368,7 +368,7 @@ map_html = f"""
         }});
     }});
 
-    // ===== 4. THÊM ĐIỂM BẰNG CÁCH NHẤN GIỮ BẢN ĐỒ =====
+    // ===== 4. THÊM ĐIỂM BẰNG NHẤN GIỮ =====
     let pressTimer;
     // Desktop: click chuột phải
     map.on('contextmenu', (e) => {{
@@ -382,12 +382,9 @@ map_html = f"""
                 note: note,
                 timestamp: Date.now()
             }};
-            const userMarkerRef = ref(db, `markers/{username}`);
-            const newMarkerRef = push(userMarkerRef, newPoint);
-            // Thiết lập onDisconnect cho toàn bộ node markers/{username} (xóa tất cả marker của user)
-            // Lưu ý: onDisconnect chỉ có thể đặt trên một reference cụ thể.
-            // Ta sẽ đặt onDisconnect để xóa toàn bộ node khi ngắt kết nối.
-            onDisconnect(ref(db, `markers/{username}`)).remove();
+            const userMarkerRef = ref(db, 'markers/{username}');
+            push(userMarkerRef, newPoint);
+            onDisconnect(ref(db, 'markers/{username}')).remove();
         }}
     }});
     // Mobile: nhấn giữ 5 giây
@@ -402,18 +399,14 @@ map_html = f"""
                     note: note,
                     timestamp: Date.now()
                 }};
-                const userMarkerRef = ref(db, `markers/{username}`);
-                const newMarkerRef = push(userMarkerRef, newPoint);
-                onDisconnect(ref(db, `markers/{username}`)).remove();
+                const userMarkerRef = ref(db, 'markers/{username}');
+                push(userMarkerRef, newPoint);
+                onDisconnect(ref(db, 'markers/{username}')).remove();
             }}
         }}, 5000);
     }});
-    map.on('touchend', (e) => {{
-        clearTimeout(pressTimer);
-    }});
-    map.on('touchcancel', (e) => {{
-        clearTimeout(pressTimer);
-    }});
+    map.on('touchend', () => clearTimeout(pressTimer));
+    map.on('touchcancel', () => clearTimeout(pressTimer));
 
     // Tự động zoom đến cán bộ đầu tiên
     let firstOfficer = true;
@@ -451,19 +444,25 @@ else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí")
 
 # ==============================
-# 11. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
+# 11. ĐIỂM ĐÁNH DẤU GẦN ĐÂY (ĐÃ SỬA LỖI)
 # ==============================
 
 all_markers = load_all_markers()
 
 with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
     if all_markers:
-        sorted_markers = sorted(
-            all_markers.items(),
-            key=lambda x: x[1]["timestamp"],
-            reverse=True
-        )[:5]
-        for _, m in sorted_markers:
-            st.write(f"📍 {m['created_by']}: {m['note'][:30]}...")
+        # Lọc các marker có timestamp hợp lệ
+        valid_markers = {k: v for k, v in all_markers.items() 
+                        if isinstance(v, dict) and v.get("timestamp")}
+        if valid_markers:
+            sorted_markers = sorted(
+                valid_markers.items(),
+                key=lambda x: x[1]["timestamp"],
+                reverse=True
+            )[:5]
+            for _, m in sorted_markers:
+                st.write(f"📍 {m.get('created_by', 'Unknown')}: {m.get('note', '')[:30]}...")
+        else:
+            st.write("Chưa có điểm đánh dấu hợp lệ")
     else:
         st.write("Chưa có điểm đánh dấu")
