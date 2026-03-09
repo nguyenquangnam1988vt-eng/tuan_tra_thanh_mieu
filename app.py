@@ -66,12 +66,10 @@ if "sharing" not in st.session_state:
 col1, col2 = st.columns([1, 5])
 
 with col1:
-
     if not st.session_state.sharing:
         if st.button("📡 Bắt đầu chia sẻ vị trí"):
             st.session_state.sharing = True
             st.rerun()
-
     else:
         if st.button("🛑 Dừng chia sẻ"):
             db.child("officers").child(username).remove()
@@ -84,15 +82,12 @@ with col1:
 # ==============================
 
 if st.session_state.sharing:
-
     gps_script = f"""
     <script type="module">
-
     import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {{ getDatabase, ref, set, onDisconnect, onChildAdded }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
     const firebaseConfig = {json.dumps(firebase_config)};
-
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
 
@@ -101,17 +96,13 @@ if st.session_state.sharing:
 
     // ===== XỬ LÝ GPS =====
     if (navigator.geolocation) {{
-
         navigator.geolocation.watchPosition(
-
             (position) => {{
-
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
                 const accuracy = position.coords.accuracy;
 
                 const officerRef = ref(database, 'officers/' + username);
-
                 set(officerRef, {{
                     name: officerName,
                     lat: lat,
@@ -119,14 +110,11 @@ if st.session_state.sharing:
                     accuracy: accuracy,
                     lastUpdate: Date.now()
                 }});
-
                 onDisconnect(officerRef).remove();
             }},
-
             (error) => {{
                 console.error("GPS error:", error);
             }},
-
             {{
                 enableHighAccuracy: true,
                 maximumAge: 0,
@@ -151,12 +139,9 @@ if st.session_state.sharing:
             onDisconnect(alertRef).remove();
         }}
     }});
-
     </script>
-
     <div style="text-align: center; color: green;">📡 Đang chia sẻ vị trí...</div>
     """
-
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
@@ -171,11 +156,8 @@ st.sidebar.subheader("🚨 Công cụ phối hợp")
 # ==============================
 
 if st.sidebar.button("🚨 Gửi báo động"):
-
     user_data = db.child("officers").child(username).get().val()
-
     if user_data:
-
         request_data = {
             "username": username,
             "name": name,
@@ -185,9 +167,7 @@ if st.sidebar.button("🚨 Gửi báo động"):
         }
         db.child("alert_requests").push(request_data)
         st.sidebar.success("Đã gửi yêu cầu báo động")
-
     else:
-
         st.sidebar.error("Bạn chưa chia sẻ vị trí")
 
 # ==============================
@@ -195,7 +175,6 @@ if st.sidebar.button("🚨 Gửi báo động"):
 # ==============================
 
 with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)"):
-
     st.caption("Trên bản đồ: nhấn giữ 5 giây để thêm điểm")
     note = st.text_area("Ghi chú (nếu thêm bằng sidebar)")
     if st.button("Thêm điểm tại vị trí hiện tại"):
@@ -209,7 +188,8 @@ with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)")
                 "note": note,
                 "timestamp": int(time.time() * 1000),
             }
-            db.child("markers").push(marker_data)
+            # Lưu dưới node markers/{username}
+            db.child("markers").child(username).push(marker_data)
             st.sidebar.success("Đã thêm điểm")
         else:
             st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
@@ -230,9 +210,20 @@ def safe_get(node):
 def load_officers():
     return safe_get("officers")
 
-@st.cache_data(ttl=5)
-def load_markers():
-    return safe_get("markers")
+# Load markers từ tất cả user (để hiển thị)
+def load_all_markers():
+    markers_dict = {}
+    try:
+        # Lấy tất cả markers dưới dạng {username: { ... }}
+        all_markers = db.child("markers").get().val()
+        if all_markers:
+            for uid, user_markers in all_markers.items():
+                if user_markers:
+                    for key, marker in user_markers.items():
+                        markers_dict[key] = marker
+        return markers_dict
+    except:
+        return {}
 
 # ==============================
 # 8. TỰ ĐỘNG REFRESH (cho danh sách online)
@@ -240,7 +231,7 @@ def load_markers():
 st_autorefresh(interval=5000, key="auto_refresh")
 
 # ==============================
-# 9. HTML BẢN ĐỒ REALTIME (đã sửa theo yêu cầu)
+# 9. HTML BẢN ĐỒ REALTIME
 # ==============================
 
 map_html = f"""
@@ -279,18 +270,15 @@ map_html = f"""
     }}).addTo(map);
 
     // Objects lưu các marker
-    const officerMarkers = {{}};      // chấm xanh + tên
-    const alertMarkers = {{}};        // chấm đỏ
-    const pointMarkers = {{}};        // chấm cam
+    const officerMarkers = {{}};
+    const alertMarkers = {{}};
+    const pointMarkers = {{}};
 
-    // ===== 1. XỬ LÝ OFFICERS (CÁN BỘ) =====
+    // ===== 1. XỬ LÝ OFFICERS =====
     const officersRef = ref(db, 'officers');
-    
     onChildAdded(officersRef, (data) => {{
         const officer = data.val();
         const id = data.key;
-        
-        // Tạo chấm tròn xanh đậm
         const marker = L.circleMarker([officer.lat, officer.lng], {{
             radius: 8,
             color: '#0066cc',
@@ -298,18 +286,14 @@ map_html = f"""
             fillOpacity: 0.8,
             weight: 1
         }}).addTo(map);
-        
-        // Tooltip hiển thị tên phía trên, sát hơn
         marker.bindTooltip(officer.name, {{
             permanent: true,
             direction: 'top',
             offset: [0, -8],
             className: 'officer-label'
         }});
-        
         officerMarkers[id] = marker;
     }});
-    
     onChildChanged(officersRef, (data) => {{
         const officer = data.val();
         const id = data.key;
@@ -318,7 +302,6 @@ map_html = f"""
             officerMarkers[id].setTooltipContent(officer.name);
         }}
     }});
-    
     onChildRemoved(officersRef, (data) => {{
         const id = data.key;
         if (officerMarkers[id]) {{
@@ -327,14 +310,11 @@ map_html = f"""
         }}
     }});
 
-    // ===== 2. XỬ LÝ ALERTS (BÁO ĐỘNG) =====
+    // ===== 2. XỬ LÝ ALERTS =====
     const alertsRef = ref(db, 'alerts');
-    
     onChildAdded(alertsRef, (data) => {{
         const alert = data.val();
         const id = data.key;
-        
-        // Chấm đỏ
         const marker = L.circleMarker([alert.lat, alert.lng], {{
             radius: 8,
             color: '#ff4444',
@@ -342,16 +322,13 @@ map_html = f"""
             fillOpacity: 0.8,
             weight: 1
         }}).addTo(map);
-        
         marker.bindTooltip(`🚨 ${{alert.name}}`, {{
             permanent: true,
             direction: 'top',
             offset: [0, -8]
         }});
-        
         alertMarkers[id] = marker;
     }});
-    
     onChildRemoved(alertsRef, (data) => {{
         const id = data.key;
         if (alertMarkers[id]) {{
@@ -361,37 +338,38 @@ map_html = f"""
     }});
 
     // ===== 3. XỬ LÝ MARKERS (ĐIỂM ĐÁNH DẤU) =====
-    const markersRef = ref(db, 'markers');
-    
-    onChildAdded(markersRef, (data) => {{
-        const point = data.val();
-        const id = data.key;
-        
-        // Chấm cam
-        const marker = L.circleMarker([point.lat, point.lng], {{
-            radius: 6,
-            color: '#ffaa00',
-            fillColor: '#ffaa00',
-            fillOpacity: 0.8,
-            weight: 1
-        }}).addTo(map);
-        
-        marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
-        
-        pointMarkers[id] = marker;
-    }});
-    
-    onChildRemoved(markersRef, (data) => {{
-        const id = data.key;
-        if (pointMarkers[id]) {{
-            map.removeLayer(pointMarkers[id]);
-            delete pointMarkers[id];
-        }}
+    // Lắng nghe tất cả markers từ mọi user: dùng wildcard? Thực tế Firebase không hỗ trợ lắng nghe tất cả con cháu, 
+    // nên ta lắng nghe từng user một. Cách đơn giản: lắng nghe node 'markers' và duyệt các user con.
+    const markersRootRef = ref(db, 'markers');
+    // Dùng onChildAdded cho từng user
+    onChildAdded(markersRootRef, (userSnapshot) => {{
+        const userId = userSnapshot.key;
+        const userMarkersRef = ref(db, `markers/${{userId}}`);
+        onChildAdded(userMarkersRef, (markerSnapshot) => {{
+            const point = markerSnapshot.val();
+            const markerId = markerSnapshot.key;
+            const marker = L.circleMarker([point.lat, point.lng], {{
+                radius: 6,
+                color: '#ffaa00',
+                fillColor: '#ffaa00',
+                fillOpacity: 0.8,
+                weight: 1
+            }}).addTo(map);
+            marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
+            pointMarkers[`${{userId}}_${{markerId}}`] = marker;
+        }});
+        onChildRemoved(userMarkersRef, (markerSnapshot) => {{
+            const markerId = markerSnapshot.key;
+            const fullId = `${{userId}}_${{markerId}}`;
+            if (pointMarkers[fullId]) {{
+                map.removeLayer(pointMarkers[fullId]);
+                delete pointMarkers[fullId];
+            }}
+        }});
     }});
 
-    // ===== 4. THÊM ĐIỂM BẰNG CÁCH NHẤN GIỮ BẢN ĐỒ (có onDisconnect) =====
+    // ===== 4. THÊM ĐIỂM BẰNG CÁCH NHẤN GIỮ BẢN ĐỒ =====
     let pressTimer;
-    
     // Desktop: click chuột phải
     map.on('contextmenu', (e) => {{
         e.originalEvent.preventDefault();
@@ -399,21 +377,19 @@ map_html = f"""
         if (note && note.trim()) {{
             const newPoint = {{
                 created_by: "{name}",
-                created_by_uid: "{username}",
                 lat: e.latlng.lat,
                 lng: e.latlng.lng,
                 note: note,
                 timestamp: Date.now()
             }};
-            // Thêm vào Firebase và lấy key
-            const markersRef = ref(db, 'markers');
-            const newMarkerRef = push(markersRef, newPoint);
-            const newKey = newMarkerRef.key;
-            // Thiết lập onDisconnect để xóa marker này khi người dùng thoát
-            onDisconnect(ref(db, 'markers/' + newKey)).remove();
+            const userMarkerRef = ref(db, `markers/{username}`);
+            const newMarkerRef = push(userMarkerRef, newPoint);
+            // Thiết lập onDisconnect cho toàn bộ node markers/{username} (xóa tất cả marker của user)
+            // Lưu ý: onDisconnect chỉ có thể đặt trên một reference cụ thể.
+            // Ta sẽ đặt onDisconnect để xóa toàn bộ node khi ngắt kết nối.
+            onDisconnect(ref(db, `markers/{username}`)).remove();
         }}
     }});
-    
     // Mobile: nhấn giữ 5 giây
     map.on('touchstart', (e) => {{
         pressTimer = setTimeout(() => {{
@@ -421,29 +397,25 @@ map_html = f"""
             if (note && note.trim()) {{
                 const newPoint = {{
                     created_by: "{name}",
-                    created_by_uid: "{username}",
                     lat: e.latlng.lat,
                     lng: e.latlng.lng,
                     note: note,
                     timestamp: Date.now()
                 }};
-                const markersRef = ref(db, 'markers');
-                const newMarkerRef = push(markersRef, newPoint);
-                const newKey = newMarkerRef.key;
-                onDisconnect(ref(db, 'markers/' + newKey)).remove();
+                const userMarkerRef = ref(db, `markers/{username}`);
+                const newMarkerRef = push(userMarkerRef, newPoint);
+                onDisconnect(ref(db, `markers/{username}`)).remove();
             }}
-        }}, 5000); // 5 giây
+        }}, 5000);
     }});
-    
     map.on('touchend', (e) => {{
         clearTimeout(pressTimer);
     }});
-    
     map.on('touchcancel', (e) => {{
         clearTimeout(pressTimer);
     }});
 
-    // Tự động zoom đến cán bộ đầu tiên khi có dữ liệu
+    // Tự động zoom đến cán bộ đầu tiên
     let firstOfficer = true;
     onChildAdded(officersRef, (data) => {{
         if (firstOfficer) {{
@@ -482,12 +454,12 @@ else:
 # 11. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
 # ==============================
 
-markers = load_markers()
+all_markers = load_all_markers()
 
 with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
-    if markers:
+    if all_markers:
         sorted_markers = sorted(
-            markers.items(),
+            all_markers.items(),
             key=lambda x: x[1]["timestamp"],
             reverse=True
         )[:5]
