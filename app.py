@@ -77,7 +77,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 5. JAVASCRIPT LẤY GPS VÀ XỬ LÝ BÁO ĐỘNG (ĐÃ SỬA IMPORT)
+# 5. JAVASCRIPT LẤY GPS VÀ XỬ LÝ BÁO ĐỘNG
 # ==============================
 
 if st.session_state.sharing:
@@ -271,7 +271,7 @@ if officers:
         st.session_state.show_tracks[uid] = checked
 
 # ==============================
-# 10. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA IMPORT ĐẦY ĐỦ)
+# 10. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA – TỰ ĐỘNG ZOOM VÀO BẠN)
 # ==============================
 
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -316,6 +316,7 @@ map_html = f"""
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
     const showTracks = {show_tracks_json};
+    const myUsername = "{username}";  // 👈 thêm biến này
 
     const map = L.map('map').setView([21.0285, 105.8542], 13);
     L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
@@ -330,6 +331,7 @@ map_html = f"""
 
     // ===== 1. OFFICERS =====
     const officersRef = ref(db, 'officers');
+
     onChildAdded(officersRef, (data) => {{
         const officer = data.val();
         const id = data.key;
@@ -347,15 +349,27 @@ map_html = f"""
             className: 'officer-label'
         }});
         officerMarkers[id] = marker;
+
+        // 👇 Nếu là chính mình thì zoom vào
+        if (id === myUsername) {{
+            map.setView([officer.lat, officer.lng], 16);
+        }}
     }});
+
     onChildChanged(officersRef, (data) => {{
         const officer = data.val();
         const id = data.key;
         if (officerMarkers[id]) {{
             officerMarkers[id].setLatLng([officer.lat, officer.lng]);
             officerMarkers[id].setTooltipContent(officer.name);
+
+            // 👇 Nếu là mình thì map di chuyển theo (giữ nguyên zoom)
+            if (id === myUsername) {{
+                map.setView([officer.lat, officer.lng], map.getZoom());
+            }}
         }}
     }});
+
     onChildRemoved(officersRef, (data) => {{
         const id = data.key;
         if (officerMarkers[id]) {{
@@ -497,15 +511,6 @@ map_html = f"""
         }});
     }});
 
-    // Tự động zoom đến cán bộ đầu tiên
-    let firstOfficer = true;
-    onChildAdded(officersRef, (data) => {{
-        if (firstOfficer) {{
-            const officer = data.val();
-            map.setView([officer.lat, officer.lng], 15);
-            firstOfficer = false;
-        }}
-    }});
     </script>
 </head>
 <body>
