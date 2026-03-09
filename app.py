@@ -6,12 +6,23 @@ import pyrebase
 import json
 import time
 from streamlit_autorefresh import st_autorefresh
+import requests  # Thêm để test
 
 # ==============================
 # 1. CẤU HÌNH FIREBASE
 # ==============================
 
 firebase_config = dict(st.secrets["firebase"])
+
+# Thử test kết nối trực tiếp đến database URL
+try:
+    test_url = firebase_config.get("databaseURL") + "/.json"
+    response = requests.get(test_url, timeout=5)
+    if response.status_code != 200:
+        st.warning(f"Không thể kết nối Firebase (status {response.status_code}). Kiểm tra databaseURL và rules.")
+except Exception as e:
+    st.warning(f"Lỗi kết nối Firebase: {e}")
+
 firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
 
@@ -79,7 +90,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 5. JAVASCRIPT LẤY GPS (SỬA: thêm type="module")
+# 5. JAVASCRIPT LẤY GPS
 # ==============================
 
 if st.session_state.sharing:
@@ -209,28 +220,39 @@ with st.sidebar.expander("📍 Đánh dấu điểm"):
             st.sidebar.success("Đã thêm điểm")
 
 # ==============================
-# 7. CACHE DỮ LIỆU (giảm tải Firebase)
+# 7. HÀM LOAD DỮ LIỆU VỚI XỬ LÝ LỖI
 # ==============================
 
-@st.cache_data(ttl=5)  # tự động refresh sau 5 giây
+def safe_get(node):
+    try:
+        result = db.child(node).get().val()
+        if result is None:
+            return {}
+        return result
+    except Exception as e:
+        st.error(f"Lỗi khi đọc dữ liệu từ Firebase ({node}): {e}")
+        return {}
+
+# Sử dụng cache nhưng vẫn có fallback
+@st.cache_data(ttl=5)
 def load_officers():
-    return db.child("officers").get().val() or {}
+    return safe_get("officers")
 
 @st.cache_data(ttl=5)
 def load_alerts():
-    return db.child("alerts").get().val() or {}
+    return safe_get("alerts")
 
 @st.cache_data(ttl=5)
 def load_markers():
-    return db.child("markers").get().val() or {}
+    return safe_get("markers")
 
 # ==============================
-# 8. TỰ ĐỘNG REFRESH (để cập nhật danh sách online)
+# 8. TỰ ĐỘNG REFRESH
 # ==============================
-st_autorefresh(interval=5000, key="auto_refresh")  # refresh mỗi 5 giây
+st_autorefresh(interval=5000, key="auto_refresh")
 
 # ==============================
-# 9. HTML BẢN ĐỒ REALTIME (sửa: tự động zoom vào cán bộ đầu tiên)
+# 9. HTML BẢN ĐỒ REALTIME
 # ==============================
 
 map_html = f"""
@@ -255,7 +277,6 @@ const firebaseConfig = {json.dumps(firebase_config)};
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// Khởi tạo map với view mặc định Hà Nội
 const map = L.map('map').setView([21.0285,105.8542],13);
 
 L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(map);
@@ -263,7 +284,6 @@ L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(
 const markers = {{}};
 const circles = {{}};
 
-// Biến để kiểm tra lần đầu có dữ liệu
 let firstOfficer = true;
 
 const officersRef = ref(db,'officers');
@@ -285,7 +305,6 @@ onChildAdded(officersRef,(data)=>{{
     markers[id] = marker;
     circles[id] = circle;
 
-    // Tự động zoom đến officer đầu tiên
     if (firstOfficer) {{
         map.setView([officer.lat, officer.lng], 15);
         firstOfficer = false;
