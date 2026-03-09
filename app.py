@@ -75,7 +75,7 @@ with col1:
     else:
         if st.button("🛑 Dừng chia sẻ"):
             db.child("officers").child(username).remove()
-            db.child("alerts").child(username).remove()  # Xóa alert khi dừng
+            db.child("alerts").child(username).remove()
             st.session_state.sharing = False
             st.rerun()
 
@@ -136,12 +136,10 @@ if st.session_state.sharing:
     }}
 
     // ===== XỬ LÝ BÁO ĐỘNG =====
-    // Lắng nghe yêu cầu báo động từ Python
     const alertRequestsRef = ref(database, 'alert_requests');
     onChildAdded(alertRequestsRef, (data) => {{
         const req = data.val();
         if (req.username === username) {{
-            // Tạo alert trong node riêng của user
             const alertRef = ref(database, 'alerts/' + username);
             set(alertRef, {{
                 name: req.name,
@@ -149,9 +147,7 @@ if st.session_state.sharing:
                 lng: req.lng,
                 timestamp: req.timestamp
             }});
-            // Xóa request sau khi xử lý
             set(ref(database, 'alert_requests/' + data.key), null);
-            // Thiết lập onDisconnect để xóa alert khi offline
             onDisconnect(alertRef).remove();
         }}
     }});
@@ -198,7 +194,7 @@ if st.sidebar.button("🚨 Gửi báo động"):
 # ĐÁNH DẤU ĐIỂM
 # ==============================
 
-with st.sidebar.expander("📍 Đánh dấu điểm (click giữ bản đồ)"):
+with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)"):
 
     st.caption("Trên bản đồ: nhấn giữ 5 giây để thêm điểm")
     note = st.text_area("Ghi chú (nếu thêm bằng sidebar)")
@@ -210,7 +206,7 @@ with st.sidebar.expander("📍 Đánh dấu điểm (click giữ bản đồ)"):
                 "lat": current["lat"],
                 "lng": current["lng"],
                 "note": note,
-                "timestamp": int(time.time() * 5000),
+                "timestamp": int(time.time() * 1000),
             }
             db.child("markers").push(marker_data)
             st.sidebar.success("Đã thêm điểm")
@@ -243,7 +239,7 @@ def load_markers():
 st_autorefresh(interval=5000, key="auto_refresh")
 
 # ==============================
-# 9. HTML BẢN ĐỒ REALTIME (đã sửa theo yêu cầu)
+# 9. HTML BẢN ĐỒ REALTIME (đã sửa lỗi f-string)
 # ==============================
 
 map_html = f"""
@@ -346,7 +342,7 @@ map_html = f"""
             weight: 1
         }}).addTo(map);
         
-        marker.bindTooltip(`🚨 ${alert.name}`, {{
+        marker.bindTooltip(`🚨 ${{alert.name}}`, {{
             permanent: true,
             direction: 'top',
             offset: [0, -15]
@@ -379,7 +375,7 @@ map_html = f"""
             weight: 1
         }}).addTo(map);
         
-        marker.bindPopup(`<b>${point.created_by}</b><br>${point.note}<br>${new Date(point.timestamp).toLocaleString()}`);
+        marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
         
         pointMarkers[id] = marker;
     }});
@@ -395,8 +391,8 @@ map_html = f"""
     // ===== 4. THÊM ĐIỂM BẰNG CÁCH NHẤN GIỮ BẢN ĐỒ =====
     let pressTimer;
     
+    // Desktop: click chuột phải
     map.on('contextmenu', (e) => {{
-        // Click chuột phải (desktop)
         e.originalEvent.preventDefault();
         const note = prompt("Nhập ghi chú cho điểm này:");
         if (note && note.trim()) {{
@@ -411,8 +407,8 @@ map_html = f"""
         }}
     }});
     
+    // Mobile: nhấn giữ 5 giây
     map.on('touchstart', (e) => {{
-        // Bắt đầu nhấn giữ trên mobile
         pressTimer = setTimeout(() => {{
             const note = prompt("Nhập ghi chú cho điểm này:");
             if (note && note.trim()) {{
