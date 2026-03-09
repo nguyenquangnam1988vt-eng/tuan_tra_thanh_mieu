@@ -4,9 +4,6 @@ import yaml
 from yaml.loader import SafeLoader
 import pyrebase
 import json
-import folium
-from streamlit_folium import folium_static
-from streamlit_autorefresh import st_autorefresh
 import time
 import os
 
@@ -16,11 +13,8 @@ firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
 
 # ---------- 2. Cấu hình xác thực ----------
-# Đọc file config.yaml (đã có trong repository)
 with open('config.yaml') as file:
     config = yaml.load(file, Loader=SafeLoader)
-
-# Ghi đè cookie key bằng giá trị từ secrets (bảo mật)
 config['cookie']['key'] = st.secrets["auth"]["cookie_key"]
 
 authenticator = stauth.Authenticate(
@@ -34,15 +28,11 @@ authenticator = stauth.Authenticate(
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 st.title("🚔 Hệ thống theo dõi và phối hợp tuần tra")
 
-# ⭐ CÁCH SỬA QUAN TRỌNG: Gọi login và lấy kết quả từ session_state
 authenticator.login(location='main')
-
-# Lấy thông tin từ session_state
 authentication_status = st.session_state.get("authentication_status")
 name = st.session_state.get("name")
 username = st.session_state.get("username")
 
-# Xử lý kết quả đăng nhập
 if authentication_status == False:
     st.error("Sai tên đăng nhập hoặc mật khẩu")
     st.stop()
@@ -54,7 +44,6 @@ elif authentication_status == None:
 authenticator.logout('Đăng xuất', 'sidebar')
 st.sidebar.success(f"Xin chào {name}")
 
-# Khởi tạo session state
 if 'sharing' not in st.session_state:
     st.session_state.sharing = False
 
@@ -103,15 +92,12 @@ if st.session_state.sharing:
             }},
             (error) => {{
                 console.error("Lỗi GPS:", error);
-                document.getElementById("gps-status").innerText = "Lỗi: " + error.message;
             }},
             {{ enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }}
         );
-    }} else {{
-        document.getElementById("gps-status").innerText = "Trình duyệt không hỗ trợ GPS";
     }}
     </script>
-    <div id="gps-status">📡 Đang lấy vị trí GPS...</div>
+    <div id="gps-status">📡 Đang chia sẻ vị trí...</div>
     """
     st.components.v1.html(js_code, height=50)
 
@@ -157,61 +143,132 @@ with st.sidebar.expander("📍 Đánh dấu vùng cần chú ý"):
             db.child("markers").push(marker_data)
             st.sidebar.success("Đã thêm điểm đánh dấu!")
 
-# ---------- 8. Tự động refresh ----------
-REFRESH_INTERVAL = 5000
-count = st_autorefresh(interval=REFRESH_INTERVAL, key="map_refresh")
+# ---------- 8. HIỂN THỊ BẢN ĐỒ REAL-TIME (component HTML) ----------
+# Tạo HTML cho bản đồ với Leaflet và Firebase listener
+map_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bản đồ tuần tra</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Firebase SDK (phiên bản 9+) -->
+    <script type="module">
+        import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import {{ getDatabase, ref, onValue, onChildAdded, onChildChanged, onChildRemoved }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-# ---------- 9. Đọc dữ liệu từ Firebase ----------
-def load_data():
-    officers = db.child("officers").get().val() or {}
-    alerts = db.child("alerts").get().val() or {}
-    markers = db.child("markers").get().val() or {}
-    return officers, alerts, markers
+        // Cấu hình Firebase (lấy từ Python)
+        const firebaseConfig = {json.dumps(firebase_config)};
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
 
-officers, alerts, markers = load_data()
+        // Khởi tạo bản đồ
+        const map = L.map('map').setView([21.0285, 105.8542], 13);
+        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }}).addTo(map);
 
-# ---------- 10. Vẽ bản đồ ----------
-if officers:
-    avg_lat = sum(o['lat'] for o in officers.values()) / len(officers)
-    avg_lng = sum(o['lng'] for o in officers.values()) / len(officers)
-    m = folium.Map(location=[avg_lat, avg_lng], zoom_start=14)
-else:
-    m = folium.Map(location=[21.0285, 105.8542], zoom_start=12)
+        // Object lưu các marker
+        const markers = {{}};  // key: officer id, alert id, marker id -> marker object
 
-# Marker cán bộ
-for uid, info in officers.items():
-    color = "blue" if uid == username else "green"
-    popup_text = f"<b>{info['name']}</b><br>Độ chính xác: {info.get('accuracy', 'N/A')}m"
-    folium.Marker(
-        [info['lat'], info['lng']],
-        popup=folium.Popup(popup_text, max_width=250),
-        tooltip=info['name'],
-        icon=folium.Icon(color=color)
-    ).add_to(m)
+        // ---- 1. Theo dõi officers (cán bộ) ----
+        const officersRef = ref(database, 'officers');
+        onChildAdded(officersRef, (data) => {{
+            const officer = data.val();
+            const id = data.key;
+            const marker = L.marker([officer.lat, officer.lng], {{
+                title: officer.name,
+                icon: L.icon({{
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                }})
+            }}).addTo(map);
+            marker.bindPopup(`<b>${{officer.name}}</b><br>Độ chính xác: ${{officer.accuracy}}m`);
+            markers[id] = marker;
+        }});
 
-# Marker báo động (đỏ)
-if alerts:
-    for key, alert in alerts.items():
-        folium.Marker(
-            [alert['lat'], alert['lng']],
-            popup=folium.Popup(f"🚨 <b>Báo động từ {alert['name']}</b><br>{time.ctime(alert['timestamp']/1000)}", max_width=250),
-            tooltip="Báo động!",
-            icon=folium.Icon(color="red", icon="warning-sign", prefix="glyphicon")
-        ).add_to(m)
+        onChildChanged(officersRef, (data) => {{
+            const officer = data.val();
+            const id = data.key;
+            if (markers[id]) {{
+                markers[id].setLatLng([officer.lat, officer.lng]);
+                markers[id].setPopupContent(`<b>${{officer.name}}</b><br>Độ chính xác: ${{officer.accuracy}}m`);
+            }}
+        }});
 
-# Marker đánh dấu (vàng)
-if markers:
-    for key, marker in markers.items():
-        folium.Marker(
-            [marker['lat'], marker['lng']],
-            popup=folium.Popup(f"📍 <b>Điểm đánh dấu</b><br>Người tạo: {marker['created_by']}<br>Ghi chú: {marker['note']}<br>{time.ctime(marker['timestamp']/1000)}", max_width=300),
-            tooltip=marker['note'][:30] + "...",
-            icon=folium.Icon(color="orange", icon="info-sign", prefix="glyphicon")
-        ).add_to(m)
+        onChildRemoved(officersRef, (data) => {{
+            const id = data.key;
+            if (markers[id]) {{
+                map.removeLayer(markers[id]);
+                delete markers[id];
+            }}
+        }});
 
-folium_static(m, width=1000, height=600)
+        // ---- 2. Theo dõi alerts (báo động) ----
+        const alertsRef = ref(database, 'alerts');
+        onChildAdded(alertsRef, (data) => {{
+            const alert = data.val();
+            const id = data.key;
+            const marker = L.marker([alert.lat, alert.lng], {{
+                icon: L.icon({{
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                }})
+            }}).addTo(map);
+            marker.bindPopup(`🚨 <b>Báo động từ ${{alert.name}}</b><br>${{new Date(alert.timestamp).toLocaleString()}}`);
+            markers[`alert_${{id}}`] = marker;
+        }});
 
-# ---------- 11. Hiển thị danh sách online ----------
+        // ---- 3. Theo dõi markers (điểm đánh dấu) ----
+        const markersRef = ref(database, 'markers');
+        onChildAdded(markersRef, (data) => {{
+            const markerData = data.val();
+            const id = data.key;
+            const marker = L.marker([markerData.lat, markerData.lng], {{
+                icon: L.icon({{
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                }})
+            }}).addTo(map);
+            marker.bindPopup(`📍 <b>Điểm đánh dấu</b><br>Người tạo: ${{markerData.created_by}}<br>Ghi chú: ${{markerData.note}}<br>${{new Date(markerData.timestamp).toLocaleString()}}`);
+            markers[`marker_${{id}}`] = marker;
+        }});
+    </script>
+    <style>
+        #map {{
+            height: 600px;
+            width: 100%;
+        }}
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+</body>
+</html>
+"""
+
+# Hiển thị bản đồ
+st.components.v1.html(map_html, height=620)
+
+# ---------- 9. Hiển thị danh sách online (vẫn dùng Streamlit) ----------
+def load_officers():
+    return db.child("officers").get().val() or {}
+
+officers = load_officers()
 st.sidebar.markdown("---")
 st.sidebar.subheader("👥 Cán bộ trực tuyến")
 if officers:
@@ -220,8 +277,11 @@ if officers:
 else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí")
 
-# ---------- 12. Xem gần đây ----------
-st.sidebar.markdown("---")
+# ---------- 10. Xem gần đây ----------
+# (có thể giữ nguyên như cũ, nhưng không cần refresh nữa)
+alerts = db.child("alerts").get().val() or {}
+markers = db.child("markers").get().val() or {}
+
 with st.sidebar.expander("📋 Báo động gần đây"):
     if alerts:
         sorted_alerts = sorted(alerts.items(), key=lambda x: x[1]['timestamp'], reverse=True)[:5]
