@@ -203,6 +203,7 @@ with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)")
         if current and note.strip():
             marker_data = {
                 "created_by": name,
+                "created_by_uid": username,
                 "lat": current["lat"],
                 "lng": current["lng"],
                 "note": note,
@@ -239,7 +240,7 @@ def load_markers():
 st_autorefresh(interval=5000, key="auto_refresh")
 
 # ==============================
-# 9. HTML BẢN ĐỒ REALTIME (đã sửa lỗi f-string)
+# 9. HTML BẢN ĐỒ REALTIME (đã sửa theo yêu cầu)
 # ==============================
 
 map_html = f"""
@@ -265,7 +266,7 @@ map_html = f"""
     </style>
     <script type="module">
     import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-    import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, set, push, serverTimestamp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+    import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, set, push, onDisconnect }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
     const firebaseConfig = {json.dumps(firebase_config)};
     const app = initializeApp(firebaseConfig);
@@ -280,7 +281,7 @@ map_html = f"""
     // Objects lưu các marker
     const officerMarkers = {{}};      // chấm xanh + tên
     const alertMarkers = {{}};        // chấm đỏ
-    const pointMarkers = {{}};        // chấm vàng
+    const pointMarkers = {{}};        // chấm cam
 
     // ===== 1. XỬ LÝ OFFICERS (CÁN BỘ) =====
     const officersRef = ref(db, 'officers');
@@ -289,20 +290,20 @@ map_html = f"""
         const officer = data.val();
         const id = data.key;
         
-        // Tạo chấm tròn xanh nhỏ (circleMarker)
+        // Tạo chấm tròn xanh đậm
         const marker = L.circleMarker([officer.lat, officer.lng], {{
             radius: 8,
-            color: '#3388ff',
-            fillColor: '#3388ff',
+            color: '#0066cc',
+            fillColor: '#0066cc',
             fillOpacity: 0.8,
             weight: 1
         }}).addTo(map);
         
-        // Tooltip hiển thị tên phía trên
+        // Tooltip hiển thị tên phía trên, sát hơn
         marker.bindTooltip(officer.name, {{
             permanent: true,
             direction: 'top',
-            offset: [0, -15],
+            offset: [0, -8],
             className: 'officer-label'
         }});
         
@@ -333,7 +334,7 @@ map_html = f"""
         const alert = data.val();
         const id = data.key;
         
-        // Chấm đỏ nhỏ
+        // Chấm đỏ
         const marker = L.circleMarker([alert.lat, alert.lng], {{
             radius: 8,
             color: '#ff4444',
@@ -345,7 +346,7 @@ map_html = f"""
         marker.bindTooltip(`🚨 ${{alert.name}}`, {{
             permanent: true,
             direction: 'top',
-            offset: [0, -15]
+            offset: [0, -8]
         }});
         
         alertMarkers[id] = marker;
@@ -366,7 +367,7 @@ map_html = f"""
         const point = data.val();
         const id = data.key;
         
-        // Chấm vàng nhỏ
+        // Chấm cam
         const marker = L.circleMarker([point.lat, point.lng], {{
             radius: 6,
             color: '#ffaa00',
@@ -388,7 +389,7 @@ map_html = f"""
         }}
     }});
 
-    // ===== 4. THÊM ĐIỂM BẰNG CÁCH NHẤN GIỮ BẢN ĐỒ =====
+    // ===== 4. THÊM ĐIỂM BẰNG CÁCH NHẤN GIỮ BẢN ĐỒ (có onDisconnect) =====
     let pressTimer;
     
     // Desktop: click chuột phải
@@ -398,12 +399,18 @@ map_html = f"""
         if (note && note.trim()) {{
             const newPoint = {{
                 created_by: "{name}",
+                created_by_uid: "{username}",
                 lat: e.latlng.lat,
                 lng: e.latlng.lng,
                 note: note,
                 timestamp: Date.now()
             }};
-            push(ref(db, 'markers'), newPoint);
+            // Thêm vào Firebase và lấy key
+            const markersRef = ref(db, 'markers');
+            const newMarkerRef = push(markersRef, newPoint);
+            const newKey = newMarkerRef.key;
+            // Thiết lập onDisconnect để xóa marker này khi người dùng thoát
+            onDisconnect(ref(db, 'markers/' + newKey)).remove();
         }}
     }});
     
@@ -414,12 +421,16 @@ map_html = f"""
             if (note && note.trim()) {{
                 const newPoint = {{
                     created_by: "{name}",
+                    created_by_uid: "{username}",
                     lat: e.latlng.lat,
                     lng: e.latlng.lng,
                     note: note,
                     timestamp: Date.now()
                 }};
-                push(ref(db, 'markers'), newPoint);
+                const markersRef = ref(db, 'markers');
+                const newMarkerRef = push(markersRef, newPoint);
+                const newKey = newMarkerRef.key;
+                onDisconnect(ref(db, 'markers/' + newKey)).remove();
             }}
         }}, 5000); // 5 giây
     }});
