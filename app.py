@@ -17,7 +17,7 @@ def get_base64(file_path):
         with open(file_path, "rb") as f:
             return base64.b64encode(f.read()).decode()
     except FileNotFoundError:
-        return ""  # Trả về chuỗi rỗng nếu không tìm thấy file
+        return ""  # Trả về rỗng nếu không tìm thấy file
 
 # ==============================
 # 1. CẤU HÌNH FIREBASE
@@ -143,7 +143,7 @@ if st.session_state.sharing:
             {{
                 enableHighAccuracy: true,
                 maximumAge: 0,
-                timeout: 10000  // Tăng lên 10s
+                timeout: 10000
             }}
         );
     }}
@@ -211,7 +211,7 @@ with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)")
             st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
 
 # ==============================
-# 7. HÀM LOAD DỮ LIỆU (chỉ gọi một lần khi cần)
+# 7. HÀM LOAD DỮ LIỆU (chỉ gọi một lần)
 # ==============================
 @st.cache_data(ttl=5)
 def load_officers():
@@ -243,7 +243,7 @@ def load_all_markers():
 st_autorefresh(interval=15000, key="auto_refresh")
 
 # ==============================
-# 9. CHECKBOX HIỂN THỊ TRACK (dùng officers đã load)
+# 9. CHECKBOX HIỂN THỊ TRACK
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🗺️ Lịch sử di chuyển")
@@ -265,11 +265,11 @@ if officers:
 # ==============================
 # 10. CHUẨN BỊ DỮ LIỆU CHO MAP
 # ==============================
-alert_sound_base64 = get_base64("alert.mp3")  # Nếu file không tồn tại, trả về rỗng
+alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
 
 # ==============================
-# 11. HTML BẢN ĐỒ REALTIME (HOÀN CHỈNH)
+# 11. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA LỖI F-STRING)
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -346,11 +346,11 @@ map_html = f"""
 
     let zoomedToMe = false;
 
-    // Âm thanh báo động (base64) – nếu không có file sẽ không phát
+    // Âm thanh báo động (base64)
     const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
     alertSound.preload = "auto";
 
-    // Kích hoạt âm thanh sau khi người dùng click (để vượt qua autoplay policy)
+    // Kích hoạt âm thanh sau khi người dùng click
     document.addEventListener("click", () => {{
         alertSound.play().then(()=>alertSound.pause()).catch(()=>{{}});
     }}, {{ once: true }});
@@ -431,9 +431,10 @@ map_html = f"""
         const alert = data.val();
         const id = data.key;
         if (alert.timestamp && alert.timestamp > oneDayAgo) {{
+            // Đã sửa lỗi f-string: dùng ${{...}} thay vì ${...}
             const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
                 .addTo(map)
-                .bindPopup(`🚨 <b>Báo động từ ${alert.name}</b><br>${new Date(alert.timestamp).toLocaleString()}`);
+                .bindPopup(`🚨 <b>Báo động từ ${{alert.name}}</b><br>${{new Date(alert.timestamp).toLocaleString()}}`);
             alertMarkers[id] = marker;
 
             if (alert.name !== myName) {{
@@ -456,16 +457,16 @@ map_html = f"""
     const markersRootRef = ref(db, 'markers');
     onChildAdded(markersRootRef, (userSnapshot) => {{
         const userId = userSnapshot.key;
-        const userMarkersRef = ref(db, `markers/${userId}`);
+        const userMarkersRef = ref(db, `markers/${{userId}}`);
         onChildAdded(userMarkersRef, (markerSnapshot) => {{
             const point = markerSnapshot.val();
             const markerId = markerSnapshot.key;
-            const fullId = `${userId}_${markerId}`;
+            const fullId = `${{userId}}_${{markerId}}`;
 
             const age = Date.now() - point.timestamp;
             const maxAge = 24 * 60 * 60 * 1000;
             if (age > maxAge) {{
-                set(ref(db, `markers/${userId}/${markerId}`), null);
+                set(ref(db, `markers/${{userId}}/${{markerId}}`), null);
                 return;
             }}
 
@@ -476,12 +477,12 @@ map_html = f"""
                 fillOpacity: 0.8,
                 weight: 1
             }}).addTo(map);
-            marker.bindPopup(`<b>${point.created_by}</b><br>${point.note}<br>${new Date(point.timestamp).toLocaleString()}`);
+            marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
             pointMarkers[fullId] = marker;
         }});
         onChildRemoved(userMarkersRef, (markerSnapshot) => {{
             const markerId = markerSnapshot.key;
-            const fullId = `${userId}_${markerId}`;
+            const fullId = `${{userId}}_${{markerId}}`;
             if (pointMarkers[fullId]) {{
                 map.removeLayer(pointMarkers[fullId]);
                 delete pointMarkers[fullId];
@@ -613,7 +614,6 @@ with tab2:
     if messages.val():
         sorted_msgs = sorted(messages.val().items(), key=lambda x: x[1]["timestamp"])
         for key, msg in sorted_msgs:
-            # Chuyển sang giờ Việt Nam (UTC+7)
             vn_time = datetime.fromtimestamp(
                 msg["timestamp"] / 1000,
                 tz=timezone(timedelta(hours=7))
