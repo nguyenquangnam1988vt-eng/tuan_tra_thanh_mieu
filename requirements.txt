@@ -1,0 +1,7 @@
+streamlit
+streamlit-authenticator
+pyrebase4
+folium
+streamlit-folium
+streamlit-autorefresh
+pyyaml

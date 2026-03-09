@@ -1,0 +1,14 @@
+credentials:
+  usernames:
+    nguyenvana:
+      email: nguyenvana@example.com
+      name: Nguyễn Văn A
+      password: $2b$12$P7UfZ1V7ZqUcXZ7bX7ZqUuX7bX7ZqUuX7bX7ZqUuX7bX7ZqUuX7b
+    tranthib:
+      email: tranthib@example.com
+      name: Trần Thị B
+      password: $2b$12$P7UfZ1V7ZqUcXZ7bX7ZqUuX7bX7ZqUuX7bX7ZqUuX7bX7ZqUuX7b
+cookie:
+  expiry_days: 7
+  key: dummy_key_will_be_replaced_by_secrets
+  name: tuan_tra_cookie
