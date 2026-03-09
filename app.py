@@ -6,11 +6,11 @@ import pyrebase
 import json
 import time
 from streamlit_autorefresh import st_autorefresh
+from datetime import datetime
 
 # ==============================
 # 1. CẤU HÌNH FIREBASE
 # ==============================
-
 firebase_config = dict(st.secrets["firebase"])
 firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
@@ -18,7 +18,6 @@ db = firebase.database()
 # ==============================
 # 2. AUTHENTICATION
 # ==============================
-
 with open("config.yaml") as file:
     config = yaml.load(file, Loader=SafeLoader)
 
@@ -34,13 +33,10 @@ authenticator = stauth.Authenticate(
 # ==============================
 # 3. GIAO DIỆN ĐĂNG NHẬP
 # ==============================
-
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
-
 st.title("🚔 Hệ thống theo dõi và phối hợp tuần tra")
 
 authenticator.login(location="main")
-
 authentication_status = st.session_state.get("authentication_status")
 name = st.session_state.get("name")
 username = st.session_state.get("username")
@@ -48,7 +44,6 @@ username = st.session_state.get("username")
 if authentication_status == False:
     st.error("Sai tên đăng nhập hoặc mật khẩu")
     st.stop()
-
 elif authentication_status == None:
     st.warning("Vui lòng đăng nhập")
     st.stop()
@@ -57,14 +52,17 @@ authenticator.logout("Đăng xuất", "sidebar")
 st.sidebar.success(f"Xin chào {name}")
 
 # ==============================
-# 4. STATE CHIA SẺ VỊ TRÍ
+# 4. KHỞI TẠO SESSION STATE
 # ==============================
-
 if "sharing" not in st.session_state:
     st.session_state.sharing = False
+if "show_tracks" not in st.session_state:
+    st.session_state.show_tracks = {}
 
+# ==============================
+# 5. NÚT BẮT ĐẦU / DỪNG CHIA SẺ VỊ TRÍ
+# ==============================
 col1, col2 = st.columns([1, 5])
-
 with col1:
     if not st.session_state.sharing:
         if st.button("📡 Bắt đầu chia sẻ vị trí"):
@@ -78,14 +76,13 @@ with col1:
             st.rerun()
 
 # ==============================
-# 5. JAVASCRIPT LẤY GPS VÀ XỬ LÝ BÁO ĐỘNG
+# 6. JAVASCRIPT LẤY GPS VÀ XỬ LÝ BÁO ĐỘNG + TRACK
 # ==============================
-
 if st.session_state.sharing:
     gps_script = f"""
     <script type="module">
     import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-    import {{ getDatabase, ref, set, onDisconnect, onChildAdded }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+    import {{ getDatabase, ref, set, onDisconnect, onChildAdded, push, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
     const firebaseConfig = {json.dumps(firebase_config)};
     const app = initializeApp(firebaseConfig);
@@ -94,7 +91,6 @@ if st.session_state.sharing:
     const username = "{username}";
     const officerName = "{name}";
 
-    // ===== XỬ LÝ GPS =====
     if (navigator.geolocation) {{
         navigator.geolocation.watchPosition(
             (position) => {{
@@ -102,6 +98,7 @@ if st.session_state.sharing:
                 const lng = position.coords.longitude;
                 const accuracy = position.coords.accuracy;
 
+                // Gửi vị trí hiện tại
                 const officerRef = ref(database, 'officers/' + username);
                 set(officerRef, {{
                     name: officerName,
@@ -111,19 +108,28 @@ if st.session_state.sharing:
                     lastUpdate: Date.now()
                 }});
                 onDisconnect(officerRef).remove();
+
+                // Lưu track (chỉ khi di chuyển >20m hoặc quá 60 giây)
+                const lastTrackRef = ref(database, 'tracks/' + username + '/last');
+                get(lastTrackRef).then((snapshot) => {{
+                    const last = snapshot.val();
+                    const now = Date.now();
+                    if (!last || 
+                        Math.abs(lat - last.lat) > 0.00018 ||
+                        Math.abs(lng - last.lng) > 0.00018 ||
+                        now - last.timestamp > 60000) {{
+                        const trackPoint = {{ lat, lng, timestamp: now }};
+                        push(ref(database, 'tracks/' + username + '/points'), trackPoint);
+                        set(lastTrackRef, {{lat, lng, timestamp: now}});
+                    }}
+                }});
             }},
-            (error) => {{
-                console.error("GPS error:", error);
-            }},
-            {{
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 5000
-            }}
+            (error) => console.error("GPS error:", error),
+            {{ enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }}
         );
     }}
 
-    // ===== XỬ LÝ BÁO ĐỘNG =====
+    // Xử lý yêu cầu báo động
     const alertRequestsRef = ref(database, 'alert_requests');
     onChildAdded(alertRequestsRef, (data) => {{
         const req = data.val();
@@ -145,16 +151,12 @@ if st.session_state.sharing:
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
-# 6. SIDEBAR CÔNG CỤ
+# 7. SIDEBAR: CÔNG CỤ
 # ==============================
-
 st.sidebar.markdown("---")
 st.sidebar.subheader("🚨 Công cụ phối hợp")
 
-# ==============================
-# GỬI BÁO ĐỘNG
-# ==============================
-
+# Gửi báo động
 if st.sidebar.button("🚨 Gửi báo động"):
     user_data = db.child("officers").child(username).get().val()
     if user_data:
@@ -170,13 +172,9 @@ if st.sidebar.button("🚨 Gửi báo động"):
     else:
         st.sidebar.error("Bạn chưa chia sẻ vị trí")
 
-# ==============================
-# ĐÁNH DẤU ĐIỂM
-# ==============================
-
-with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)"):
-    st.caption("Trên bản đồ: nhấn giữ 5 giây để thêm điểm")
-    note = st.text_area("Ghi chú (nếu thêm bằng sidebar)")
+# Đánh dấu điểm
+with st.sidebar.expander("📍 Đánh dấu điểm"):
+    note = st.text_area("Ghi chú")
     if st.button("Thêm điểm tại vị trí hiện tại"):
         current = db.child("officers").child(username).get().val()
         if current and note.strip():
@@ -193,276 +191,217 @@ with st.sidebar.expander("📍 Đánh dấu điểm (nhấn giữ bản đồ)")
             st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
 
 # ==============================
-# 7. HÀM LOAD DỮ LIỆU (ĐÃ SỬA LỖI)
+# 8. SIDEBAR: DANH SÁCH CÁN BỘ VÀ CHECKBOX TRACK
 # ==============================
-
-def safe_get(node):
-    try:
-        result = db.child(node).get().val()
-        return result if result else {}
-    except Exception as e:
-        st.error(f"Lỗi Firebase: {e}")
-        return {}
-
-@st.cache_data(ttl=5)
-def load_officers():
-    return safe_get("officers")
-
-def load_all_markers():
-    """Lấy tất cả markers từ tất cả user, chỉ lấy marker có timestamp hợp lệ"""
-    markers_dict = {}
-    try:
-        all_markers = db.child("markers").get().val()
-        if all_markers:
-            for uid, user_markers in all_markers.items():
-                if user_markers and isinstance(user_markers, dict):
-                    for key, marker in user_markers.items():
-                        # Chỉ thêm nếu marker có timestamp và là số
-                        if isinstance(marker, dict) and marker.get("timestamp"):
-                            markers_dict[key] = marker
-        return markers_dict
-    except Exception as e:
-        st.error(f"Lỗi đọc markers: {e}")
-        return {}
-
-# ==============================
-# 8. TỰ ĐỘNG REFRESH (cho danh sách online)
-# ==============================
-st_autorefresh(interval=5000, key="auto_refresh")
-
-# ==============================
-# 9. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA)
-# ==============================
-
-map_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <style>
-        #map {{ height: 600px; width: 100%; }}
-        .leaflet-tooltip {{
-            background: transparent;
-            border: none;
-            box-shadow: none;
-            font-weight: bold;
-            color: #333;
-            text-shadow: 1px 1px 2px white;
-            font-size: 12px;
-            margin-top: -15px !important;
-            white-space: nowrap;
-        }}
-    </style>
-    <script type="module">
-    import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-    import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, push, onDisconnect }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
-
-    const firebaseConfig = {json.dumps(firebase_config)};
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-
-    // Khởi tạo bản đồ
-    const map = L.map('map').setView([21.0285, 105.8542], 13);
-    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-        attribution: '&copy; OpenStreetMap'
-    }}).addTo(map);
-
-    // Objects lưu các marker
-    const officerMarkers = {{}};
-    const alertMarkers = {{}};
-    const pointMarkers = {{}};
-
-    // ===== 1. OFFICERS =====
-    const officersRef = ref(db, 'officers');
-    onChildAdded(officersRef, (data) => {{
-        const officer = data.val();
-        const id = data.key;
-        const marker = L.circleMarker([officer.lat, officer.lng], {{
-            radius: 8,
-            color: '#0066cc',
-            fillColor: '#0066cc',
-            fillOpacity: 0.8,
-            weight: 1
-        }}).addTo(map);
-        marker.bindTooltip(officer.name, {{
-            permanent: true,
-            direction: 'top',
-            offset: [0, -8],
-            className: 'officer-label'
-        }});
-        officerMarkers[id] = marker;
-    }});
-    onChildChanged(officersRef, (data) => {{
-        const officer = data.val();
-        const id = data.key;
-        if (officerMarkers[id]) {{
-            officerMarkers[id].setLatLng([officer.lat, officer.lng]);
-            officerMarkers[id].setTooltipContent(officer.name);
-        }}
-    }});
-    onChildRemoved(officersRef, (data) => {{
-        const id = data.key;
-        if (officerMarkers[id]) {{
-            map.removeLayer(officerMarkers[id]);
-            delete officerMarkers[id];
-        }}
-    }});
-
-    // ===== 2. ALERTS =====
-    const alertsRef = ref(db, 'alerts');
-    onChildAdded(alertsRef, (data) => {{
-        const alert = data.val();
-        const id = data.key;
-        const marker = L.circleMarker([alert.lat, alert.lng], {{
-            radius: 8,
-            color: '#ff4444',
-            fillColor: '#ff4444',
-            fillOpacity: 0.8,
-            weight: 1
-        }}).addTo(map);
-        marker.bindTooltip(`🚨 ${{alert.name}}`, {{
-            permanent: true,
-            direction: 'top',
-            offset: [0, -8]
-        }});
-        alertMarkers[id] = marker;
-    }});
-    onChildRemoved(alertsRef, (data) => {{
-        const id = data.key;
-        if (alertMarkers[id]) {{
-            map.removeLayer(alertMarkers[id]);
-            delete alertMarkers[id];
-        }}
-    }});
-
-    // ===== 3. MARKERS (ĐIỂM ĐÁNH DẤU) =====
-    // Theo dõi tất cả markers từ mọi user
-    const markersRootRef = ref(db, 'markers');
-    onChildAdded(markersRootRef, (userSnapshot) => {{
-        const userId = userSnapshot.key;
-        const userMarkersRef = ref(db, `markers/${{userId}}`);
-        onChildAdded(userMarkersRef, (markerSnapshot) => {{
-            const point = markerSnapshot.val();
-            const markerId = markerSnapshot.key;
-            const fullId = `${{userId}}_${{markerId}}`;
-            const marker = L.circleMarker([point.lat, point.lng], {{
-                radius: 6,
-                color: '#ffaa00',
-                fillColor: '#ffaa00',
-                fillOpacity: 0.8,
-                weight: 1
-            }}).addTo(map);
-            marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
-            pointMarkers[fullId] = marker;
-        }});
-        onChildRemoved(userMarkersRef, (markerSnapshot) => {{
-            const markerId = markerSnapshot.key;
-            const fullId = `${{userId}}_${{markerId}}`;
-            if (pointMarkers[fullId]) {{
-                map.removeLayer(pointMarkers[fullId]);
-                delete pointMarkers[fullId];
-            }}
-        }});
-    }});
-
-    // ===== 4. THÊM ĐIỂM BẰNG NHẤN GIỮ =====
-    let pressTimer;
-    // Desktop: click chuột phải
-    map.on('contextmenu', (e) => {{
-        e.originalEvent.preventDefault();
-        const note = prompt("Nhập ghi chú cho điểm này:");
-        if (note && note.trim()) {{
-            const newPoint = {{
-                created_by: "{name}",
-                lat: e.latlng.lat,
-                lng: e.latlng.lng,
-                note: note,
-                timestamp: Date.now()
-            }};
-            const userMarkerRef = ref(db, 'markers/{username}');
-            push(userMarkerRef, newPoint);
-            onDisconnect(ref(db, 'markers/{username}')).remove();
-        }}
-    }});
-    // Mobile: nhấn giữ 5 giây
-    map.on('touchstart', (e) => {{
-        pressTimer = setTimeout(() => {{
-            const note = prompt("Nhập ghi chú cho điểm này:");
-            if (note && note.trim()) {{
-                const newPoint = {{
-                    created_by: "{name}",
-                    lat: e.latlng.lat,
-                    lng: e.latlng.lng,
-                    note: note,
-                    timestamp: Date.now()
-                }};
-                const userMarkerRef = ref(db, 'markers/{username}');
-                push(userMarkerRef, newPoint);
-                onDisconnect(ref(db, 'markers/{username}')).remove();
-            }}
-        }}, 5000);
-    }});
-    map.on('touchend', () => clearTimeout(pressTimer));
-    map.on('touchcancel', () => clearTimeout(pressTimer));
-
-    // Tự động zoom đến cán bộ đầu tiên
-    let firstOfficer = true;
-    onChildAdded(officersRef, (data) => {{
-        if (firstOfficer) {{
-            const officer = data.val();
-            map.setView([officer.lat, officer.lng], 15);
-            firstOfficer = false;
-        }}
-    }});
-    </script>
-</head>
-<body>
-    <div id="map"></div>
-</body>
-</html>
-"""
-
-st.components.v1.html(map_html, height=620)
-
-# ==============================
-# 10. DANH SÁCH CÁN BỘ ONLINE
-# ==============================
-
-officers = load_officers()
-
 st.sidebar.markdown("---")
 st.sidebar.subheader("👥 Cán bộ trực tuyến")
-
+officers = db.child("officers").get().val() or {}
 if officers:
     for uid, info in officers.items():
-        label = "(bạn)" if uid == username else ""
-        st.sidebar.write(f"• {info['name']} {label}")
+        label = f"{info['name']} {'(bạn)' if uid==username else ''}"
+        col_a, col_b = st.sidebar.columns([3,1])
+        with col_a:
+            st.write(f"• {label}")
+        with col_b:
+            key = f"track_{uid}"
+            checked = st.checkbox("Track", value=st.session_state.show_tracks.get(uid, False), key=key, label_visibility="collapsed")
+            st.session_state.show_tracks[uid] = checked
 else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí")
 
 # ==============================
-# 11. ĐIỂM ĐÁNH DẤU GẦN ĐÂY (ĐÃ SỬA LỖI)
+# 9. TABS: BẢN ĐỒ VÀ CHAT
 # ==============================
+tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
-all_markers = load_all_markers()
+# ----- TAB 1: BẢN ĐỒ -----
+with tab1:
+    show_tracks_json = json.dumps(st.session_state.show_tracks)
+    map_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+            #map {{ height: 600px; width: 100%; }}
+            .leaflet-tooltip {{
+                background: transparent; border: none; box-shadow: none;
+                font-weight: bold; color: #333; text-shadow: 1px 1px 2px white;
+                font-size: 12px; margin-top: -15px !important; white-space: nowrap;
+            }}
+        </style>
+        <script type="module">
+        import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
-    if all_markers:
-        # Lọc các marker có timestamp hợp lệ
-        valid_markers = {k: v for k, v in all_markers.items() 
-                        if isinstance(v, dict) and v.get("timestamp")}
-        if valid_markers:
-            sorted_markers = sorted(
-                valid_markers.items(),
-                key=lambda x: x[1]["timestamp"],
-                reverse=True
-            )[:5]
-            for _, m in sorted_markers:
-                st.write(f"📍 {m.get('created_by', 'Unknown')}: {m.get('note', '')[:30]}...")
-        else:
-            st.write("Chưa có điểm đánh dấu hợp lệ")
+        const firebaseConfig = {json.dumps(firebase_config)};
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const showTracks = {show_tracks_json};
+
+        const map = L.map('map').setView([21.0285, 105.8542], 13);
+        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+            attribution: '&copy; OpenStreetMap'
+        }}).addTo(map);
+
+        // Objects
+        const officerMarkers = {{}};
+        const alertMarkers = {{}};
+        const pointMarkers = {{}};
+        const trackPolylines = {{}};
+
+        // ----- OFFICERS -----
+        const officersRef = ref(db, 'officers');
+        onChildAdded(officersRef, (data) => {{
+            const officer = data.val(); const id = data.key;
+            const marker = L.circleMarker([officer.lat, officer.lng], {{
+                radius: 8, color: '#0066cc', fillColor: '#0066cc',
+                fillOpacity: 0.8, weight: 1
+            }}).addTo(map);
+            marker.bindTooltip(officer.name, {{ permanent: true, direction: 'top', offset: [0, -8] }});
+            officerMarkers[id] = marker;
+        }});
+        onChildChanged(officersRef, (data) => {{
+            const officer = data.val(); const id = data.key;
+            if (officerMarkers[id]) {{
+                officerMarkers[id].setLatLng([officer.lat, officer.lng]);
+                officerMarkers[id].setTooltipContent(officer.name);
+            }}
+        }});
+        onChildRemoved(officersRef, (data) => {{
+            const id = data.key;
+            if (officerMarkers[id]) {{
+                map.removeLayer(officerMarkers[id]); delete officerMarkers[id];
+            }}
+        }});
+
+        // ----- ALERTS (có phát âm thanh) -----
+        const alertsRef = ref(db, 'alerts');
+        onChildAdded(alertsRef, (data) => {{
+            const alert = data.val(); const id = data.key;
+            const marker = L.circleMarker([alert.lat, alert.lng], {{
+                radius: 8, color: '#ff4444', fillColor: '#ff4444',
+                fillOpacity: 0.8, weight: 1
+            }}).addTo(map);
+            marker.bindTooltip(`🚨 ${{alert.name}}`, {{ permanent: true, direction: 'top', offset: [0, -8] }});
+            alertMarkers[id] = marker;
+
+            // Phát âm thanh nếu không phải do mình gửi
+            if (alert.name !== "{name}") {{
+                const audio = document.getElementById('alert-sound');
+                audio.play().catch(e => console.log("Audio error:", e));
+            }}
+        }});
+        onChildRemoved(alertsRef, (data) => {{
+            const id = data.key;
+            if (alertMarkers[id]) {{
+                map.removeLayer(alertMarkers[id]); delete alertMarkers[id];
+            }}
+        }});
+
+        // ----- MARKERS (điểm đánh dấu) -----
+        const markersRootRef = ref(db, 'markers');
+        onChildAdded(markersRootRef, (userSnapshot) => {{
+            const userId = userSnapshot.key;
+            const userMarkersRef = ref(db, `markers/${{userId}}`);
+            onChildAdded(userMarkersRef, (markerSnapshot) => {{
+                const point = markerSnapshot.val();
+                const markerId = markerSnapshot.key;
+                const fullId = `${{userId}}_${{markerId}}`;
+                const marker = L.circleMarker([point.lat, point.lng], {{
+                    radius: 6, color: '#ffaa00', fillColor: '#ffaa00',
+                    fillOpacity: 0.8, weight: 1
+                }}).addTo(map);
+                marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
+                pointMarkers[fullId] = marker;
+            }});
+            onChildRemoved(userMarkersRef, (markerSnapshot) => {{
+                const markerId = markerSnapshot.key;
+                const fullId = `${{userId}}_${{markerId}}`;
+                if (pointMarkers[fullId]) {{
+                    map.removeLayer(pointMarkers[fullId]); delete pointMarkers[fullId];
+                }}
+            }});
+        }});
+
+        // ----- TRACKS -----
+        function loadUserTracks(userId, userName, show) {{
+            const tracksRef = ref(db, 'tracks/' + userId + '/points');
+            const tracksQuery = query(tracksRef, limitToLast(200));
+            if (!show) {{
+                if (trackPolylines[userId]) {{
+                    map.removeLayer(trackPolylines[userId]); delete trackPolylines[userId];
+                }}
+                return;
+            }}
+            onValue(tracksQuery, (snapshot) => {{
+                const points = snapshot.val();
+                if (!points) return;
+                const latlngs = Object.values(points).filter(p => p.lat && p.lng).map(p => [p.lat, p.lng]);
+                if (trackPolylines[userId]) map.removeLayer(trackPolylines[userId]);
+                const hue = (userName.split('').reduce((a,b) => a + b.charCodeAt(0), 0) * 31) % 360;
+                const color = `hsl(${{hue}}, 70%, 50%)`;
+                const polyline = L.polyline(latlngs, {{ color: color, weight: 3, opacity: 0.6 }}).addTo(map);
+                trackPolylines[userId] = polyline;
+            }});
+        }}
+
+        onValue(officersRef, (snapshot) => {{
+            const officers = snapshot.val() || {{}};
+            Object.keys(officers).forEach(uid => {{
+                loadUserTracks(uid, officers[uid].name, showTracks[uid] || false);
+            }});
+        }});
+        </script>
+    </head>
+    <body>
+        <div id="map"></div>
+        <audio id="alert-sound" src="alert.mp3" preload="auto"></audio>
+    </body>
+    </html>
+    """
+    st.components.v1.html(map_html, height=620)
+
+# ----- TAB 2: CHAT NỘI BỘ -----
+with tab2:
+    st.subheader("💬 Chat nội bộ")
+    # Tự động refresh chat mỗi 3 giây
+    st_autorefresh(interval=3000, key="chat_refresh")
+
+    # Hiển thị tin nhắn
+    messages = db.child("messages").order_by_child("timestamp").limit_to_last(50).get().val()
+    if messages:
+        sorted_msgs = sorted(messages.items(), key=lambda x: x[1]["timestamp"])
+        for key, msg in sorted_msgs:
+            is_me = (msg["from"] == username)
+            align = "right" if is_me else "left"
+            bg_color = "#dcf8c6" if is_me else "#f1f0f0"
+            st.markdown(
+                f"<div style='display: flex; justify-content: {align}; margin:5px;'>"
+                f"<div style='background-color: {bg_color}; padding:8px 12px; border-radius:10px; max-width:70%;'>"
+                f"<b>{msg['name']}</b> {datetime.fromtimestamp(msg['timestamp']/1000).strftime('%H:%M')}<br>{msg['message']}"
+                f"</div></div>",
+                unsafe_allow_html=True
+            )
     else:
-        st.write("Chưa có điểm đánh dấu")
+        st.info("Chưa có tin nhắn nào.")
+
+    # Form gửi tin nhắn
+    with st.form("chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            message = st.text_input("", placeholder="Nhập tin nhắn...", label_visibility="collapsed")
+        with col2:
+            sent = st.form_submit_button("Gửi")
+        if sent and message.strip():
+            chat_data = {
+                "from": username,
+                "name": name,
+                "message": message,
+                "timestamp": int(time.time() * 1000)
+            }
+            db.child("messages").push(chat_data)
+            st.rerun()
