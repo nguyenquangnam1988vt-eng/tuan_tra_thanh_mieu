@@ -33,15 +33,14 @@ def haversine(lat1, lng1, lat2, lng2):
     return R * c
 
 # ==============================
-# 1. HÀM UPLOAD ẢNH LÊN IMGBB (thay thế Firebase Storage)
+# 1. HÀM UPLOAD ẢNH LÊN IMGBB
 # ==============================
 def upload_to_imgbb(image_file, api_key):
-    """Upload ảnh lên ImgBB, trả về URL hoặc None nếu lỗi"""
     try:
         url = "https://api.imgbb.com/1/upload"
         payload = {
             "key": api_key,
-            "expiration": 86400  # Ảnh tự động xóa sau 24h
+            "expiration": 86400
         }
         files = {"image": (image_file.name, image_file.getvalue(), image_file.type)}
         response = requests.post(url, data=payload, files=files)
@@ -54,7 +53,7 @@ def upload_to_imgbb(image_file, api_key):
         return None, str(e)
 
 # ==============================
-# 2. CẤU HÌNH FIREBASE (Pyrebase cho client)
+# 2. CẤU HÌNH FIREBASE (Pyrebase)
 # ==============================
 firebase_config = dict(st.secrets["firebase"])
 firebase = pyrebase.initialize_app(firebase_config)
@@ -115,7 +114,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 6. JAVASCRIPT LẤY GPS (lọc khoảng cách, độ chính xác)
+# 6. JAVASCRIPT LẤY GPS (lọc khoảng cách)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -138,14 +137,12 @@ if st.session_state.sharing:
     const username = "{username}";
     const officerName = "{name}";
 
-    // Hàm tính khoảng cách Haversine (mét)
     function haversine(lat1, lng1, lat2, lng2) {{
         const R = 6371e3;
         const φ1 = lat1 * Math.PI/180;
         const φ2 = lat2 * Math.PI/180;
         const Δφ = (lat2 - lat1) * Math.PI/180;
         const Δλ = (lng2 - lng1) * Math.PI/180;
-
         const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
                   Math.cos(φ1) * Math.cos(φ2) *
                   Math.sin(Δλ/2) * Math.sin(Δλ/2);
@@ -159,8 +156,6 @@ if st.session_state.sharing:
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
                 const accuracy = position.coords.accuracy;
-                
-                // Lọc sai số >30m
                 if (accuracy > 30) return;
 
                 const officerRef = ref(database, 'officers/' + username);
@@ -173,17 +168,14 @@ if st.session_state.sharing:
                 }});
                 onDisconnect(officerRef).remove();
 
-                // Lưu track thông minh: chỉ khi di chuyển >=10m hoặc quá 60s
                 const lastTrackRef = ref(database, 'tracks/' + username + '/last');
                 get(lastTrackRef).then((snapshot) => {{
                     const last = snapshot.val();
                     const now = Date.now();
-
                     let distance = 0;
                     if (last) {{
                         distance = haversine(last.lat, last.lng, lat, lng);
                     }}
-
                     if (!last || distance >= 10 || now - last.timestamp > 60000) {{
                         const trackPoint = {{ lat, lng, timestamp: now }};
                         push(ref(database, 'tracks/' + username + '/points'), trackPoint);
@@ -196,7 +188,6 @@ if st.session_state.sharing:
         );
     }}
 
-    // Xử lý yêu cầu báo động
     const alertRequestsRef = ref(database, 'alert_requests');
     onChildAdded(alertRequestsRef, (data) => {{
         const req = data.val();
@@ -218,7 +209,7 @@ if st.session_state.sharing:
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
-# 7. HÀM GỬI THÔNG BÁO FCM (nếu có server key)
+# 7. HÀM GỬI FCM LEGACY (nếu có server key)
 # ==============================
 def send_fcm_notification(title, body, target_token, server_key):
     url = "https://fcm.googleapis.com/fcm/send"
@@ -245,7 +236,6 @@ def send_fcm_notification(title, body, target_token, server_key):
 # 8. CLEANUP DỮ LIỆU CŨ (24h)
 # ==============================
 def cleanup_old_data():
-    """Xóa incidents và markers cũ hơn 24h"""
     try:
         incidents = db.child("incidents").get().val()
         if incidents:
@@ -264,7 +254,6 @@ cleanup_old_data()
 st.sidebar.markdown("---")
 st.sidebar.subheader("🚨 Công cụ phối hợp")
 
-# Gửi báo động (kèm FCM nếu có key)
 if st.sidebar.button("🚨 Gửi báo động"):
     user_data = db.child("officers").child(username).get().val()
     if user_data:
@@ -277,7 +266,6 @@ if st.sidebar.button("🚨 Gửi báo động"):
         }
         db.child("alert_requests").push(request_data)
 
-        # Gửi FCM nếu có server_key
         server_key = st.secrets.get("fcm", {}).get("server_key", "")
         if server_key:
             tokens = db.child("fcm_tokens").get().val() or {}
@@ -289,7 +277,6 @@ if st.sidebar.button("🚨 Gửi báo động"):
     else:
         st.sidebar.error("Bạn chưa chia sẻ vị trí")
 
-# Đánh dấu điểm (thường)
 with st.sidebar.expander("📍 Đánh dấu điểm"):
     note = st.text_area("Ghi chú")
     if st.button("Thêm điểm tại vị trí hiện tại"):
@@ -307,9 +294,6 @@ with st.sidebar.expander("📍 Đánh dấu điểm"):
         else:
             st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
 
-# ==============================
-# 10. CHỤP ẢNH HIỆN TRƯỜNG (dùng ImgBB)
-# ==============================
 with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
     uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
     note_photo = st.text_input("Ghi chú (tùy chọn)")
@@ -340,7 +324,7 @@ with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
                     st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
 
 # ==============================
-# 11. HÀM LOAD DỮ LIỆU
+# 10. HÀM LOAD DỮ LIỆU
 # ==============================
 @st.cache_data(ttl=5)
 def load_officers():
@@ -380,12 +364,12 @@ def load_incidents():
         return {}
 
 # ==============================
-# 12. TỰ ĐỘNG REFRESH (cho sidebar)
+# 11. TỰ ĐỘNG REFRESH
 # ==============================
 st_autorefresh(interval=15000, key="auto_refresh")
 
 # ==============================
-# 13. CHECKBOX HIỂN THỊ TRACK
+# 12. CHECKBOX HIỂN THỊ TRACK
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🗺️ Lịch sử di chuyển")
@@ -405,14 +389,14 @@ if officers:
         st.session_state.show_tracks[uid] = checked
 
 # ==============================
-# 14. CHUẨN BỊ DỮ LIỆU CHO MAP
+# 13. CHUẨN BỊ DỮ LIỆU CHO MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
 fcm_vapid_key = st.secrets.get("fcm", {}).get("vapid_key", "")
 
 # ==============================
-# 15. HTML BẢN ĐỒ REALTIME (tích hợp đầy đủ)
+# 14. HTML BẢN ĐỒ REALTIME (ĐÃ TỐI ƯU VỚI sessionStorage)
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -422,7 +406,6 @@ map_html = f"""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- NoSleep.js -->
     <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
     <style>
         #map {{ height: 600px; width: 100%; }}
@@ -497,7 +480,7 @@ map_html = f"""
         document.removeEventListener('click', enableNoSleep);
     }});
 
-    // FCM Token (nếu có vapid_key)
+    // FCM Token
     if ('serviceWorker' in navigator && "{fcm_vapid_key}" !== "") {{
         navigator.serviceWorker.register('/firebase-messaging-sw.js')
             .then((registration) => {{
@@ -516,29 +499,41 @@ map_html = f"""
         new Notification(payload.notification.title, {{ body: payload.notification.body }});
     }});
 
-    const map = L.map('map').setView([21.0285, 105.8542], 13);
+    // ===== KHÔI PHỤC VỊ TRÍ MAP TỪ SESSIONSTORAGE =====
+    const savedCenter = sessionStorage.getItem('mapCenter');
+    const savedZoom = sessionStorage.getItem('mapZoom');
+    let map;
+    if (savedCenter && savedZoom) {{
+        const center = JSON.parse(savedCenter);
+        map = L.map('map').setView(center, parseInt(savedZoom));
+    }} else {{
+        map = L.map('map').setView([21.0285, 105.8542], 13);
+    }}
+
     L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
         attribution: '&copy; OpenStreetMap'
     }}).addTo(map);
 
-    // Objects
-    const officerMarkers = {{}};
-    const alertMarkers = {{}};
-    const pointMarkers = {{}};
-    const incidentMarkers = {{}};
-    const trackPolylines = {{}};
-    const trackListeners = {{}};
+    // Lưu vị trí map khi di chuyển
+    map.on('moveend', () => {{
+        const center = map.getCenter();
+        sessionStorage.setItem('mapCenter', JSON.stringify([center.lat, center.lng]));
+        sessionStorage.setItem('mapZoom', map.getZoom());
+    }});
 
-    let zoomedToMe = false;
-
-    // Âm thanh
+    // ===== ÂM THANH - CHỈ KÍCH HOẠT MỘT LẦN =====
     const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
     alertSound.preload = "auto";
-    document.addEventListener("click", () => {{
-        alertSound.play().then(()=>alertSound.pause()).catch(()=>{{}});
-    }}, {{ once: true }});
 
-    // Icon
+    if (!sessionStorage.getItem('audioActivated')) {{
+        document.addEventListener("click", () => {{
+            alertSound.load();
+            sessionStorage.setItem('audioActivated', 'true');
+        }}, {{ once: true }});
+    }} else {{
+        alertSound.load(); // Đã kích hoạt rồi thì chỉ load
+    }}
+
     const alertIcon = L.divIcon({{
         className: '',
         html: '<div class="alert-marker"></div>',
@@ -553,15 +548,24 @@ map_html = f"""
         popupAnchor: [0, -15]
     }});
 
-    // GPS fallback
-    if (navigator.geolocation) {{
+    // Objects
+    const officerMarkers = {{}};
+    const alertMarkers = {{}};
+    const pointMarkers = {{}};
+    const incidentMarkers = {{}};
+    const trackPolylines = {{}};
+    const trackListeners = {{}};
+
+    let zoomedToMe = sessionStorage.getItem('zoomedToMe') === 'true';
+
+    // GPS fallback (chỉ zoom nếu chưa)
+    if (navigator.geolocation && !zoomedToMe) {{
         navigator.geolocation.getCurrentPosition(
             (position) => {{
                 const {{ latitude: lat, longitude: lng }} = position.coords;
-                if (!zoomedToMe) {{
-                    map.setView([lat, lng], 16);
-                    zoomedToMe = true;
-                }}
+                map.setView([lat, lng], 16);
+                zoomedToMe = true;
+                sessionStorage.setItem('zoomedToMe', 'true');
             }},
             (error) => console.warn("GPS fallback error:", error),
             {{ enableHighAccuracy: true, timeout: 10000 }}
@@ -591,6 +595,7 @@ map_html = f"""
         if (id === myUsername && !zoomedToMe) {{
             map.setView([officer.lat, officer.lng], 16);
             zoomedToMe = true;
+            sessionStorage.setItem('zoomedToMe', 'true');
         }}
     }});
 
@@ -614,7 +619,7 @@ map_html = f"""
         }}
     }});
 
-    // ===== KIỂM TRA ONLINE (đổi màu xám) =====
+    // ===== KIỂM TRA ONLINE =====
     const OFFLINE_TIMEOUT = 60000;
     function updateOnlineStatus() {{
         const now = Date.now();
@@ -694,7 +699,7 @@ map_html = f"""
         }});
     }});
 
-    // ===== INCIDENTS (ảnh hiện trường) =====
+    // ===== INCIDENTS =====
     const incidentsRef = ref(db, 'incidents');
     onChildAdded(incidentsRef, (data) => {{
         const inc = data.val();
@@ -807,12 +812,13 @@ map_html = f"""
 """
 
 # ==============================
-# 16. TABS: BẢN ĐỒ VÀ CHAT
+# 15. TABS: BẢN ĐỒ VÀ CHAT
 # ==============================
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
 with tab1:
-    st.components.v1.html(map_html, height=620)
+    # Thêm key="map" để tránh rerender không cần thiết
+    st.components.v1.html(map_html, height=620, key="map")
 
 with tab2:
     st.subheader("💬 Chat nội bộ")
@@ -860,7 +866,6 @@ with tab2:
                 "timestamp": int(time.time() * 1000)
             }
             db.child("messages").push(chat_data)
-            # Giới hạn 200 tin nhắn
             all_msgs = db.child("messages").order_by_child("timestamp").get().val()
             if all_msgs and len(all_msgs) > 200:
                 sorted_all = sorted(all_msgs.items(), key=lambda x: x[1]["timestamp"])
@@ -869,7 +874,7 @@ with tab2:
             st.rerun()
 
 # ==============================
-# 17. DANH SÁCH CÁN BỘ ONLINE
+# 16. DANH SÁCH CÁN BỘ ONLINE
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("👥 Cán bộ trực tuyến")
@@ -882,7 +887,7 @@ else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí")
 
 # ==============================
-# 18. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
+# 17. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
 # ==============================
 all_markers = load_all_markers()
 with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
@@ -899,7 +904,7 @@ with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
         st.write("Chưa có điểm đánh dấu")
 
 # ==============================
-# 19. INCIDENTS GẦN ĐÂY
+# 18. INCIDENTS GẦN ĐÂY
 # ==============================
 incidents = load_incidents()
 with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
