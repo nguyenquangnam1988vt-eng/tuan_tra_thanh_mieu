@@ -52,14 +52,29 @@ def upload_to_imgbb(image_file, api_key):
         return None, str(e)
 
 # ==============================
-# 2. CẤU HÌNH FIREBASE
+# 2. HÀM TÌM CÁN BỘ GẦN NHẤT
+# ==============================
+def find_nearest_officers(lat, lng, limit=3):
+    officers = db.child("officers").get().val()
+    if not officers:
+        return []
+    distances = []
+    for uid, data in officers.items():
+        if data.get("lat") and data.get("lng"):
+            d = haversine(lat, lng, data["lat"], data["lng"])
+            distances.append((uid, d))
+    distances.sort(key=lambda x: x[1])
+    return [uid for uid, _ in distances[:limit]]
+
+# ==============================
+# 3. CẤU HÌNH FIREBASE
 # ==============================
 firebase_config = dict(st.secrets["firebase"])
 firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
 
 # ==============================
-# 3. AUTHENTICATION
+# 4. AUTHENTICATION
 # ==============================
 with open("config.yaml") as file:
     config = yaml.load(file, Loader=SafeLoader)
@@ -74,7 +89,7 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. GIAO DIỆN ĐĂNG NHẬP
+# 5. GIAO DIỆN ĐĂNG NHẬP
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 st.title("🚔 Hệ thống theo dõi và phối hợp tuần tra")
@@ -95,7 +110,7 @@ authenticator.logout("Đăng xuất", "sidebar")
 st.sidebar.success(f"Xin chào {name}")
 
 # ==============================
-# 5. STATE CHIA SẺ VỊ TRÍ
+# 6. STATE CHIA SẺ VỊ TRÍ
 # ==============================
 if "sharing" not in st.session_state:
     st.session_state.sharing = False
@@ -113,7 +128,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 6. JAVASCRIPT LẤY GPS
+# 7. JAVASCRIPT LẤY GPS (dùng serverTimestamp)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -126,7 +141,8 @@ if st.session_state.sharing:
         get, 
         push, 
         onDisconnect, 
-        onChildAdded 
+        onChildAdded,
+        serverTimestamp
     }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
     const firebaseConfig = {json.dumps(firebase_config)};
@@ -161,22 +177,32 @@ if st.session_state.sharing:
                     lat: lat,
                     lng: lng,
                     accuracy: accuracy,
-                    lastUpdate: Date.now()
+                    lastUpdate: serverTimestamp()
                 }});
-                onDisconnect(officerRef).remove();
+                
+                // Khi mất kết nối, đánh dấu offline và ghi thời gian
+                onDisconnect(officerRef).update({{
+                    lastUpdate: 0,
+                    offlineAt: serverTimestamp()
+                }});
 
+                // Lưu track thông minh
                 const lastTrackRef = ref(database, 'tracks/' + username + '/last');
                 get(lastTrackRef).then((snapshot) => {{
                     const last = snapshot.val();
-                    const now = Date.now();
+                    const now = Date.now(); // timestamp hiện tại (client)
                     let distance = 0;
                     if (last) {{
                         distance = haversine(last.lat, last.lng, lat, lng);
                     }}
-                    if (!last || distance >= 10 || now - last.timestamp > 60000) {{
-                        const trackPoint = {{ lat, lng, timestamp: now }};
+                    if (!last || (distance >= 10 && distance < 100) || now - last.timestamp > 60000) {{
+                        const trackPoint = {{ 
+                            lat, 
+                            lng, 
+                            timestamp: serverTimestamp() 
+                        }};
                         push(ref(database, 'tracks/' + username + '/points'), trackPoint);
-                        set(lastTrackRef, {{lat, lng, timestamp: now}});
+                        set(lastTrackRef, {{lat, lng, timestamp: serverTimestamp()}});
                     }}
                 }});
             }},
@@ -194,7 +220,9 @@ if st.session_state.sharing:
                 name: req.name,
                 lat: req.lat,
                 lng: req.lng,
-                timestamp: req.timestamp
+                assigned: req.assigned || [],
+                status: req.status || "pending",
+                timestamp: serverTimestamp()
             }});
             set(ref(database, 'alert_requests/' + data.key), null);
             onDisconnect(alertRef).remove();
@@ -206,7 +234,7 @@ if st.session_state.sharing:
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
-# 7. HÀM GỬI THÔNG BÁO FCM
+# 8. HÀM GỬI THÔNG BÁO FCM
 # ==============================
 def send_fcm_notification(title, body, target_token, server_key):
     url = "https://fcm.googleapis.com/fcm/send"
@@ -230,7 +258,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 8. CLEANUP DỮ LIỆU CŨ
+# 9. CLEANUP DỮ LIỆU CŨ (chạy 5 phút/lần)
 # ==============================
 def cleanup_old_data():
     try:
@@ -243,22 +271,64 @@ def cleanup_old_data():
     except Exception as e:
         print("Cleanup error:", e)
 
-cleanup_old_data()
+def cleanup_offline_officers():
+    try:
+        officers = db.child("officers").get().val()
+        if not officers:
+            return
+        now = int(time.time() * 1000)
+        limit = 30 * 60 * 1000
+        for uid, data in officers.items():
+            offline_at = data.get("offlineAt")
+            if offline_at and now - offline_at > limit:
+                db.child("officers").child(uid).remove()
+    except Exception as e:
+        print("Cleanup offline officers error:", e)
+
+def cleanup_old_tracks():
+    try:
+        tracks = db.child("tracks").get().val()
+        if not tracks:
+            return
+        now = int(time.time() * 1000)
+        limit = 24 * 3600 * 1000
+        for uid, data in tracks.items():
+            points = data.get("points")
+            if not points:
+                continue
+            for key, point in points.items():
+                if now - point.get("timestamp", 0) > limit:
+                    db.child("tracks").child(uid).child("points").child(key).remove()
+    except Exception as e:
+        print("Track cleanup error:", e)
+
+# Chỉ chạy cleanup mỗi 5 phút
+if "last_cleanup" not in st.session_state or time.time() - st.session_state.last_cleanup > 300:
+    cleanup_old_data()
+    cleanup_offline_officers()
+    cleanup_old_tracks()
+    st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 9. SIDEBAR CÔNG CỤ
+# 10. SIDEBAR CÔNG CỤ
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🚨 Công cụ phối hợp")
 
+# Gửi báo động
 if st.sidebar.button("🚨 Gửi báo động"):
     user_data = db.child("officers").child(username).get().val()
     if user_data:
+        lat = user_data["lat"]
+        lng = user_data["lng"]
+        nearest = find_nearest_officers(lat, lng)
         request_data = {
             "username": username,
             "name": name,
-            "lat": user_data["lat"],
-            "lng": user_data["lng"],
+            "lat": lat,
+            "lng": lng,
+            "assigned": nearest,
+            "status": "pending",
             "timestamp": int(time.time() * 1000)
         }
         db.child("alert_requests").push(request_data)
@@ -274,6 +344,7 @@ if st.sidebar.button("🚨 Gửi báo động"):
     else:
         st.sidebar.error("Bạn chưa chia sẻ vị trí")
 
+# Đánh dấu điểm
 with st.sidebar.expander("📍 Đánh dấu điểm"):
     note = st.text_area("Ghi chú")
     if st.button("Thêm điểm tại vị trí hiện tại"):
@@ -291,6 +362,7 @@ with st.sidebar.expander("📍 Đánh dấu điểm"):
         else:
             st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
 
+# Chụp ảnh hiện trường
 with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
     uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
     note_photo = st.text_input("Ghi chú (tùy chọn)")
@@ -318,10 +390,34 @@ with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
                         "timestamp": int(time.time() * 1000)
                     }
                     db.child("incidents").push(incident_data)
-                    st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự xóa sau 24h.")
+                    st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
 
 # ==============================
-# 10. HÀM LOAD DỮ LIỆU
+# 11. NHIỆM VỤ
+# ==============================
+st.sidebar.markdown("---")
+st.sidebar.subheader("📋 Nhiệm vụ")
+if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
+    alerts = db.child("alerts").get().val()
+    if alerts:
+        found = False
+        for key, alert in alerts.items():
+            assigned = alert.get("assigned", [])
+            if username in assigned:
+                db.child("alerts").child(key).update({
+                    "status": "accepted",
+                    "accepted_by": username
+                })
+                st.sidebar.success("Đã nhận nhiệm vụ")
+                found = True
+                break
+        if not found:
+            st.sidebar.info("Không có nhiệm vụ nào cho bạn")
+    else:
+        st.sidebar.info("Không có báo động nào")
+
+# ==============================
+# 12. HÀM LOAD DỮ LIỆU
 # ==============================
 @st.cache_data(ttl=5)
 def load_officers():
@@ -361,12 +457,12 @@ def load_incidents():
         return {}
 
 # ==============================
-# 11. TỰ ĐỘNG REFRESH
+# 13. TỰ ĐỘNG REFRESH
 # ==============================
 st_autorefresh(interval=15000, key="auto_refresh")
 
 # ==============================
-# 12. CHECKBOX HIỂN THỊ TRACK
+# 14. CHECKBOX HIỂN THỊ TRACK
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🗺️ Lịch sử di chuyển")
@@ -386,14 +482,14 @@ if officers:
         st.session_state.show_tracks[uid] = checked
 
 # ==============================
-# 13. CHUẨN BỊ DỮ LIỆU CHO MAP
+# 15. CHUẨN BỊ DỮ LIỆU CHO MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
 fcm_vapid_key = st.secrets.get("fcm", {}).get("vapid_key", "")
 
 # ==============================
-# 14. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA LỖI)
+# 16. HTML BẢN ĐỒ REALTIME (đã cập nhật limitToLast 100 và zoom toàn đội)
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -472,6 +568,18 @@ map_html = f"""
 
     console.log("👤 Username:", myUsername);
 
+    // Hàm haversine tính khoảng cách (mét)
+    function haversine(lat1, lng1, lat2, lng2) {{
+        const R = 6371e3;
+        const φ1 = lat1 * Math.PI/180;
+        const φ2 = lat2 * Math.PI/180;
+        const Δφ = (lat2 - lat1) * Math.PI/180;
+        const Δλ = (lng2 - lng1) * Math.PI/180;
+        const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }}
+
     // NoSleep
     let noSleep = new NoSleep();
     document.addEventListener('click', function enableNoSleep() {{
@@ -535,7 +643,6 @@ map_html = f"""
     const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
     alertSound.preload = "auto";
 
-    // Kích hoạt âm thanh một lần duy nhất (không phát, chỉ load)
     if (!sessionStorage.getItem('audioActivated')) {{
         document.addEventListener("click", () => {{
             alertSound.load();
@@ -559,7 +666,7 @@ map_html = f"""
         popupAnchor: [0, -15]
     }});
 
-    // GPS fallback (chỉ zoom nếu chưa từng zoom)
+    // GPS fallback
     if (navigator.geolocation && !zoomedToMe) {{
         navigator.geolocation.getCurrentPosition(
             (position) => {{
@@ -620,7 +727,7 @@ map_html = f"""
         }}
     }});
 
-    // ===== KIỂM TRA ONLINE (ĐÃ SỬA DÙNG get) =====
+    // ===== KIỂM TRA ONLINE (đổi màu xám) =====
     const OFFLINE_TIMEOUT = 60000;
     function updateOnlineStatus() {{
         const now = Date.now();
@@ -629,7 +736,8 @@ map_html = f"""
             Object.keys(officers).forEach(uid => {{
                 const marker = officerMarkers[uid];
                 if (marker) {{
-                    if (now - officers[uid].lastUpdate > OFFLINE_TIMEOUT) {{
+                    const lastUpdate = officers[uid].lastUpdate;
+                    if (lastUpdate === 0 || now - lastUpdate > OFFLINE_TIMEOUT) {{
                         marker.setStyle({{ color: '#aaa', fillColor: '#aaa' }});
                     }} else {{
                         marker.setStyle({{ color: '#0066cc', fillColor: '#0066cc' }});
@@ -647,9 +755,28 @@ map_html = f"""
         const alert = data.val();
         const id = data.key;
         if (alert.timestamp && alert.timestamp > oneDayAgo) {{
+            // Tính khoảng cách nếu có marker của chính mình
+            let distanceText = "";
+            if (officerMarkers[myUsername]) {{
+                const myLatLng = officerMarkers[myUsername].getLatLng();
+                const distance = haversine(myLatLng.lat, myLatLng.lng, alert.lat, alert.lng);
+                distanceText = `<br>Khoảng cách: ${{(distance/1000).toFixed(2)}} km`;
+            }}
+
+            // Xác định trạng thái
+            let statusText = "";
+            if (alert.status === "pending") statusText = "🟥 Chưa xử lý";
+            else if (alert.status === "accepted") statusText = "🟨 Đang xử lý";
+            else if (alert.status === "resolved") statusText = "🟩 Đã xong";
+            else statusText = "Không rõ";
+
             const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
                 .addTo(map)
-                .bindPopup(`🚨 <b>Báo động từ ${{alert.name}}</b><br>${{new Date(alert.timestamp).toLocaleString()}}`);
+                .bindPopup(`
+                    🚨 <b>Báo động từ ${{alert.name}}</b><br>
+                    Trạng thái: ${{statusText}}${{distanceText}}<br>
+                    ${{new Date(alert.timestamp).toLocaleString()}}
+                `);
             alertMarkers[id] = marker;
             if (alert.name !== myName) {{
                 alertSound.currentTime = 0;
@@ -766,10 +893,10 @@ map_html = f"""
     map.on('touchend', () => clearTimeout(pressTimer));
     map.on('touchcancel', () => clearTimeout(pressTimer));
 
-    // ===== VẼ TRACK (thêm điểm) =====
+    // ===== VẼ TRACK (giới hạn 100 điểm) =====
     function loadUserTracks(userId, userName, show) {{
         const tracksRef = ref(db, 'tracks/' + userId + '/points');
-        const tracksQuery = query(tracksRef, limitToLast(200));
+        const tracksQuery = query(tracksRef, limitToLast(100)); // 👈 giảm từ 200 xuống 100
         if (!show) {{
             if (trackPolylines[userId]) {{
                 map.removeLayer(trackPolylines[userId]);
@@ -804,6 +931,24 @@ map_html = f"""
         }});
     }});
 
+    // ===== ZOOM TOÀN ĐỘI (fitBounds) =====
+    function zoomToAllOfficers() {{
+        const markers = Object.values(officerMarkers);
+        if (markers.length === 0) return;
+        const group = L.featureGroup(markers);
+        map.fitBounds(group.getBounds(), {{ padding: [50, 50] }});
+    }}
+
+    // Gọi zoomToAllOfficers sau mỗi lần có thay đổi officers
+    onValue(officersRef, (snapshot) => {{
+        // ... (phần loadTracks đã có)
+        // Gọi zoom khi có nhiều hơn 1 officer
+        const officers = snapshot.val() || {{}};
+        if (Object.keys(officers).length > 1) {{
+            zoomToAllOfficers();
+        }}
+    }});
+
     </script>
 </head>
 <body>
@@ -813,12 +958,11 @@ map_html = f"""
 """
 
 # ==============================
-# 15. TABS: BẢN ĐỒ VÀ CHAT
+# 17. TABS: BẢN ĐỒ VÀ CHAT
 # ==============================
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
 with tab1:
-    # ✅ ĐÃ SỬA: Bỏ key="map" (không được hỗ trợ)
     st.components.v1.html(map_html, height=620)
 
 with tab2:
@@ -867,7 +1011,6 @@ with tab2:
                 "timestamp": int(time.time() * 1000)
             }
             db.child("messages").push(chat_data)
-            # Giới hạn 200 tin nhắn
             all_msgs = db.child("messages").order_by_child("timestamp").get().val()
             if all_msgs and len(all_msgs) > 200:
                 sorted_all = sorted(all_msgs.items(), key=lambda x: x[1]["timestamp"])
@@ -876,7 +1019,7 @@ with tab2:
             st.rerun()
 
 # ==============================
-# 16. DANH SÁCH CÁN BỘ ONLINE
+# 18. DANH SÁCH CÁN BỘ ONLINE
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("👥 Cán bộ trực tuyến")
@@ -889,7 +1032,7 @@ else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí")
 
 # ==============================
-# 17. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
+# 19. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
 # ==============================
 all_markers = load_all_markers()
 with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
@@ -906,7 +1049,7 @@ with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
         st.write("Chưa có điểm đánh dấu")
 
 # ==============================
-# 18. INCIDENTS GẦN ĐÂY
+# 20. INCIDENTS GẦN ĐÂY
 # ==============================
 incidents = load_incidents()
 with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
