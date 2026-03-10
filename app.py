@@ -781,9 +781,10 @@ map_html = f"""
         map = L.map('map').setView([21.0285, 105.8542], 13);
     }}
 
-    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-        attribution: '&copy; OpenStreetMap'
-    }}).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 19
+    }).addTo(map);
 
     // Lưu vị trí map khi di chuyển
     map.on('moveend', () => {{
