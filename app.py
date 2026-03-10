@@ -615,7 +615,7 @@ def load_incidents():
 # ==============================
 # 14. TỰ ĐỘNG REFRESH
 # ==============================
-st_autorefresh(interval=15000, key="auto_refresh")
+st_autorefresh(interval=3000, key="auto_refresh")
 
 # ==============================
 # 15. CHECKBOX HIỂN THỊ TRACK
