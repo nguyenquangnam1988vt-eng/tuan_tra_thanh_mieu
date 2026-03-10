@@ -128,7 +128,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. JAVASCRIPT LẤY GPS (SMOOTHING + THROTTLE + FILTER + BUFFER)
+# 7. JAVASCRIPT LẤY GPS (SMOOTHING + THROTTLE + FILTER)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -200,6 +200,7 @@ if st.session_state.sharing:
         let angle = Math.abs(b1 - b2);
         if (angle > 180) angle = 360 - angle;
 
+        // Nếu gần thẳng hàng (góc < 10 độ) thì bỏ qua
         return angle >= 10;
     }}
 
@@ -228,16 +229,7 @@ if st.session_state.sharing:
         return {{lat,lng}};
     }}
 
-    // ===== TẠO MARKER TẠM THỜI KHI BẮT ĐẦU CHIA SẺ =====
-    const officerRef = ref(database, 'officers/' + username);
-    set(officerRef, {{
-        name: officerName,
-        lat: 0,
-        lng: 0,
-        lastUpdate: serverTimestamp()
-    }});
-
-    // ===== GPS WATCHER =====
+    // ===== GPS watcher =====
     if (navigator.geolocation) {{
         navigator.geolocation.watchPosition(function(position){{
             const accuracy=position.coords.accuracy;
@@ -278,7 +270,8 @@ if st.session_state.sharing:
 
             const now=Date.now();
 
-            // gửi vị trí lên officers (realtime)
+            // gửi vị trí lên officers (để realtime) - không throttle
+            const officerRef = ref(database, 'officers/' + username);
             set(officerRef, {{
                 name: officerName,
                 lat: lat,
@@ -288,7 +281,7 @@ if st.session_state.sharing:
             }});
             onDisconnect(officerRef).update({{
                 lastUpdate: 0,
-                offlineAt: Date.now()  // dùng số timestamp
+                offlineAt: serverTimestamp()
             }});
 
             // lưu track có throttle 5 giây
@@ -301,7 +294,7 @@ if st.session_state.sharing:
                 timestamp: serverTimestamp()
             }};
 
-            // nội suy điểm giữa
+            // nội suy điểm giữa nếu khoảng cách hợp lý
             if(lastPoint){{
                 const dist = distance(
                     lastPoint.lat,
@@ -321,9 +314,10 @@ if st.session_state.sharing:
                 }}
             }}
 
-            // lọc điểm thẳng hàng
+            // lọc điểm thẳng hàng trước khi lưu
             if (lastPoint && prevPoint) {{
                 if (!shouldSavePoint(prevPoint, lastPoint, trackPoint)) {{
+                    // bỏ qua điểm giữa, nhưng vẫn cập nhật biến
                     prevPoint = lastPoint;
                     lastPoint = trackPoint;
                     return;
@@ -446,7 +440,7 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 10. PHÂN TÍCH TUẦN TRA (CHỈ GIỮ CÁN BỘ ĐỨNG YÊN)
+# 10. PHÂN TÍCH TUẦN TRA (CHỈ GIỮ LẠI CÁC HÀM CẦN THIẾT)
 # ==============================
 def detect_stationary_officers():
     try:
@@ -619,9 +613,9 @@ def load_incidents():
         return {}
 
 # ==============================
-# 14. TỰ ĐỘNG REFRESH (giảm xuống 5 giây)
+# 14. TỰ ĐỘNG REFRESH
 # ==============================
-st_autorefresh(interval=5000, key="auto_refresh")
+st_autorefresh(interval=15000, key="auto_refresh")
 
 # ==============================
 # 15. CHECKBOX HIỂN THỊ TRACK
@@ -655,7 +649,7 @@ stationary_officers = detect_stationary_officers()
 stationary_json = json.dumps(stationary_officers)
 
 # ==============================
-# 17. HTML BẢN ĐỒ REALTIME (ĐÃ CẬP NHẬT BUFFER + GET INITIAL)
+# 17. HTML BẢN ĐỒ REALTIME (KHÔNG HEATMAP, CHỈ VÒNG TRÒN XANH)
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -737,7 +731,7 @@ map_html = f"""
 
     console.log("👤 Username:", myUsername);
 
-    // Hàm haversine
+    // Hàm haversine tính khoảng cách (mét)
     function haversine(lat1, lng1, lat2, lng2) {{
         const R = 6371e3;
         const φ1 = lat1 * Math.PI/180;
@@ -849,7 +843,7 @@ map_html = f"""
         );
     }}
 
-    // ===== CÁN BỘ ĐỨNG YÊN =====
+    // ===== CÁN BỘ ĐỨNG YÊN (cảnh báo màu cam) =====
     stationaryOfficers.forEach(officer => {{
         L.circleMarker([officer.lat, officer.lng], {{
             radius: 8,
@@ -862,54 +856,42 @@ map_html = f"""
 
     // ===== OFFICERS =====
     const officersRef = ref(db, 'officers');
-
-    // Load toàn bộ officers ngay lập tức
-    get(officersRef).then((snapshot) => {{
-        const officers = snapshot.val() || {{}};
-        Object.keys(officers).forEach(uid => {{
-            const officer = officers[uid];
-            const marker = L.circleMarker([officer.lat, officer.lng], {{
-                radius: 8,
-                color: '#0066cc',
-                fillColor: '#0066cc',
-                fillOpacity: 0.8,
-                weight: 1
-            }}).addTo(map);
-            marker.bindTooltip(officer.name, {{
-                permanent: true,
-                direction: 'top',
-                offset: [0, -8],
-                className: 'officer-label'
-            }});
-            officerMarkers[uid] = marker;
-
-            if (uid === myUsername && !zoomedToMe) {{
-                map.setView([officer.lat, officer.lng], 16);
-                zoomedToMe = true;
-                sessionStorage.setItem('zoomedToMe', 'true');
-            }}
+    onChildAdded(officersRef, (data) => {{
+        const officer = data.val();
+        const id = data.key;
+        const marker = L.circleMarker([officer.lat, officer.lng], {{
+            radius: 8,
+            color: '#0066cc',
+            fillColor: '#0066cc',
+            fillOpacity: 0.8,
+            weight: 1
+        }}).addTo(map);
+        marker.bindTooltip(officer.name, {{
+            permanent: true,
+            direction: 'top',
+            offset: [0, -8],
+            className: 'officer-label'
         }});
-    }}).catch(error => console.error("Error loading officers:", error));
+        officerMarkers[id] = marker;
 
-    // Buffer cập nhật marker
-    let updateBuffer = {{}};
+        if (id === myUsername && !zoomedToMe) {{
+            map.setView([officer.lat, officer.lng], 16);
+            zoomedToMe = true;
+            sessionStorage.setItem('zoomedToMe', 'true');
+        }}
+    }});
 
     onChildChanged(officersRef, (data) => {{
         const officer = data.val();
-        const uid = data.key;
-        updateBuffer[uid] = officer;
-    }});
-
-    // Cập nhật marker mỗi giây
-    setInterval(() => {{
-        Object.keys(updateBuffer).forEach(uid => {{
-            const officer = updateBuffer[uid];
-            if (officerMarkers[uid]) {{
-                officerMarkers[uid].setLatLng([officer.lat, officer.lng]);
+        const id = data.key;
+        if (officerMarkers[id]) {{
+            officerMarkers[id].setLatLng([officer.lat, officer.lng]);
+            officerMarkers[id].setTooltipContent(officer.name);
+            if (id === myUsername) {{
+                map.setView([officer.lat, officer.lng], map.getZoom());
             }}
-        }});
-        updateBuffer = {{}};
-    }}, 1000);
+        }}
+    }});
 
     onChildRemoved(officersRef, (data) => {{
         const id = data.key;
@@ -919,7 +901,7 @@ map_html = f"""
         }}
     }});
 
-    // ===== KIỂM TRA ONLINE =====
+    // ===== KIỂM TRA ONLINE (đổi màu xám) =====
     const OFFLINE_TIMEOUT = 60000;
     function updateOnlineStatus() {{
         const now = Date.now();
@@ -947,6 +929,7 @@ map_html = f"""
         const alert = data.val();
         const id = data.key;
         if (alert.timestamp && alert.timestamp > oneDayAgo) {{
+            // Tính khoảng cách nếu có marker của chính mình
             let distanceText = "";
             if (officerMarkers[myUsername]) {{
                 const myLatLng = officerMarkers[myUsername].getLatLng();
@@ -954,6 +937,7 @@ map_html = f"""
                 distanceText = `<br>Khoảng cách: ${{(distance/1000).toFixed(2)}} km`;
             }}
 
+            // Xác định trạng thái
             let statusText = "";
             if (alert.status === "pending") statusText = "🟥 Chưa xử lý";
             else if (alert.status === "accepted") {{
@@ -989,7 +973,7 @@ map_html = f"""
         }}
     }});
 
-    // ===== MARKERS =====
+    // ===== MARKERS (điểm thường) =====
     const markersRootRef = ref(db, 'markers');
     onChildAdded(markersRootRef, (userSnapshot) => {{
         const userId = userSnapshot.key;
@@ -1089,7 +1073,7 @@ map_html = f"""
     map.on('touchend', () => clearTimeout(pressTimer));
     map.on('touchcancel', () => clearTimeout(pressTimer));
 
-    // ===== VẼ TRACK =====
+    // ===== VẼ TRACK (giới hạn 100 điểm) =====
     function loadUserTracks(userId, userName, show) {{
         const tracksRef = ref(db, 'tracks/' + userId + '/points');
         const tracksQuery = query(tracksRef, limitToLast(100));
@@ -1127,7 +1111,7 @@ map_html = f"""
         }});
     }});
 
-    // ===== ZOOM TOÀN ĐỘI =====
+    // ===== ZOOM TOÀN ĐỘI (fitBounds) =====
     function zoomToAllOfficers() {{
         const markers = Object.values(officerMarkers);
         if (markers.length === 0) return;
