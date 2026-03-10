@@ -22,7 +22,6 @@ def get_base64(file_path):
         return ""
 
 def haversine(lat1, lng1, lat2, lng2):
-    """Tính khoảng cách giữa hai tọa độ (mét)"""
     R = 6371e3
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -53,7 +52,7 @@ def upload_to_imgbb(image_file, api_key):
         return None, str(e)
 
 # ==============================
-# 2. CẤU HÌNH FIREBASE (Pyrebase)
+# 2. CẤU HÌNH FIREBASE
 # ==============================
 firebase_config = dict(st.secrets["firebase"])
 firebase = pyrebase.initialize_app(firebase_config)
@@ -114,7 +113,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 6. JAVASCRIPT LẤY GPS (lọc khoảng cách)
+# 6. JAVASCRIPT LẤY GPS
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -143,9 +142,7 @@ if st.session_state.sharing:
         const φ2 = lat2 * Math.PI/180;
         const Δφ = (lat2 - lat1) * Math.PI/180;
         const Δλ = (lng2 - lng1) * Math.PI/180;
-        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                  Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+        const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R * c;
     }}
@@ -209,7 +206,7 @@ if st.session_state.sharing:
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
-# 7. HÀM GỬI FCM LEGACY (nếu có server key)
+# 7. HÀM GỬI THÔNG BÁO FCM
 # ==============================
 def send_fcm_notification(title, body, target_token, server_key):
     url = "https://fcm.googleapis.com/fcm/send"
@@ -233,7 +230,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 8. CLEANUP DỮ LIỆU CŨ (24h)
+# 8. CLEANUP DỮ LIỆU CŨ
 # ==============================
 def cleanup_old_data():
     try:
@@ -321,7 +318,7 @@ with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
                         "timestamp": int(time.time() * 1000)
                     }
                     db.child("incidents").push(incident_data)
-                    st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
+                    st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự xóa sau 24h.")
 
 # ==============================
 # 10. HÀM LOAD DỮ LIỆU
@@ -396,7 +393,7 @@ show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
 fcm_vapid_key = st.secrets.get("fcm", {}).get("vapid_key", "")
 
 # ==============================
-# 14. HTML BẢN ĐỒ REALTIME (ĐÃ TỐI ƯU VỚI sessionStorage)
+# 14. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA LỖI)
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -406,6 +403,7 @@ map_html = f"""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- NoSleep.js -->
     <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
     <style>
         #map {{ height: 600px; width: 100%; }}
@@ -458,7 +456,8 @@ map_html = f"""
         limitToLast, 
         set,
         push, 
-        onDisconnect
+        onDisconnect,
+        get
     }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
     import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 
@@ -503,6 +502,7 @@ map_html = f"""
     const savedCenter = sessionStorage.getItem('mapCenter');
     const savedZoom = sessionStorage.getItem('mapZoom');
     let map;
+
     if (savedCenter && savedZoom) {{
         const center = JSON.parse(savedCenter);
         map = L.map('map').setView(center, parseInt(savedZoom));
@@ -521,17 +521,28 @@ map_html = f"""
         sessionStorage.setItem('mapZoom', map.getZoom());
     }});
 
-    // ===== ÂM THANH - CHỈ KÍCH HOẠT MỘT LẦN =====
+    // Objects
+    const officerMarkers = {{}};
+    const alertMarkers = {{}};
+    const pointMarkers = {{}};
+    const incidentMarkers = {{}};
+    const trackPolylines = {{}};
+    const trackListeners = {{}};
+
+    let zoomedToMe = sessionStorage.getItem('zoomedToMe') === 'true';
+
+    // Âm thanh
     const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
     alertSound.preload = "auto";
 
+    // Kích hoạt âm thanh một lần duy nhất (không phát, chỉ load)
     if (!sessionStorage.getItem('audioActivated')) {{
         document.addEventListener("click", () => {{
             alertSound.load();
             sessionStorage.setItem('audioActivated', 'true');
         }}, {{ once: true }});
     }} else {{
-        alertSound.load(); // Đã kích hoạt rồi thì chỉ load
+        alertSound.load();
     }}
 
     const alertIcon = L.divIcon({{
@@ -548,17 +559,7 @@ map_html = f"""
         popupAnchor: [0, -15]
     }});
 
-    // Objects
-    const officerMarkers = {{}};
-    const alertMarkers = {{}};
-    const pointMarkers = {{}};
-    const incidentMarkers = {{}};
-    const trackPolylines = {{}};
-    const trackListeners = {{}};
-
-    let zoomedToMe = sessionStorage.getItem('zoomedToMe') === 'true';
-
-    // GPS fallback (chỉ zoom nếu chưa)
+    // GPS fallback (chỉ zoom nếu chưa từng zoom)
     if (navigator.geolocation && !zoomedToMe) {{
         navigator.geolocation.getCurrentPosition(
             (position) => {{
@@ -619,11 +620,11 @@ map_html = f"""
         }}
     }});
 
-    // ===== KIỂM TRA ONLINE =====
+    // ===== KIỂM TRA ONLINE (ĐÃ SỬA DÙNG get) =====
     const OFFLINE_TIMEOUT = 60000;
     function updateOnlineStatus() {{
         const now = Date.now();
-        officersRef.once('value', (snapshot) => {{
+        get(officersRef).then((snapshot) => {{
             const officers = snapshot.val() || {{}};
             Object.keys(officers).forEach(uid => {{
                 const marker = officerMarkers[uid];
@@ -635,7 +636,7 @@ map_html = f"""
                     }}
                 }}
             }});
-        }});
+        }}).catch(error => console.error("Error fetching officers:", error));
     }}
     setInterval(updateOnlineStatus, 30000);
 
@@ -817,8 +818,8 @@ map_html = f"""
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
 with tab1:
-    # Thêm key="map" để tránh rerender không cần thiết
-    st.components.v1.html(map_html, height=620, key="map")
+    # ✅ ĐÃ SỬA: Bỏ key="map" (không được hỗ trợ)
+    st.components.v1.html(map_html, height=620)
 
 with tab2:
     st.subheader("💬 Chat nội bộ")
@@ -866,6 +867,7 @@ with tab2:
                 "timestamp": int(time.time() * 1000)
             }
             db.child("messages").push(chat_data)
+            # Giới hạn 200 tin nhắn
             all_msgs = db.child("messages").order_by_child("timestamp").get().val()
             if all_msgs and len(all_msgs) > 200:
                 sorted_all = sorted(all_msgs.items(), key=lambda x: x[1]["timestamp"])
