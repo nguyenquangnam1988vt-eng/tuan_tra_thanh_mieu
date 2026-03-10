@@ -128,7 +128,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. JAVASCRIPT LẤY GPS (SMOOTHING + THROTTLE + FILTER)
+# 7. JAVASCRIPT LẤY GPS (SMOOTHING VERSION)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -151,15 +151,12 @@ if st.session_state.sharing:
     const username = "{username}";
     const officerName = "{name}";
 
-    // ===== GPS SMOOTHING + OPTIMIZATION =====
+    // ===== GPS SMOOTHING SCRIPT =====
     let lastLat = null;
     let lastLng = null;
     let lastPoint = null;
-    let prevPoint = null;
     let lastBearing = null;
     let trackBuffer = [];
-    let lastSendTime = 0;
-    const SEND_INTERVAL = 5000; // 5 giây
 
     // hàm tính khoảng cách
     function distance(lat1, lon1, lat2, lon2) {{
@@ -190,18 +187,6 @@ if st.session_state.sharing:
             Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(dLon);
 
         return (toDeg(Math.atan2(y,x)) + 360) % 360;
-    }}
-
-    // kiểm tra điểm thẳng hàng
-    function shouldSavePoint(p1, p2, p3) {{
-        const b1 = getBearing(p1.lat, p1.lng, p2.lat, p2.lng);
-        const b2 = getBearing(p2.lat, p2.lng, p3.lat, p3.lng);
-
-        let angle = Math.abs(b1 - b2);
-        if (angle > 180) angle = 360 - angle;
-
-        // Nếu gần thẳng hàng (góc < 10 độ) thì bỏ qua
-        return angle >= 10;
     }}
 
     // ổn định đường thẳng
@@ -270,7 +255,7 @@ if st.session_state.sharing:
 
             const now=Date.now();
 
-            // gửi vị trí lên officers (để realtime) - không throttle
+            // gửi vị trí lên officers (để realtime)
             const officerRef = ref(database, 'officers/' + username);
             set(officerRef, {{
                 name: officerName,
@@ -284,10 +269,7 @@ if st.session_state.sharing:
                 offlineAt: serverTimestamp()
             }});
 
-            // lưu track có throttle 5 giây
-            if (now - lastSendTime < SEND_INTERVAL) return;
-            lastSendTime = now;
-
+            // lưu track
             const trackPoint = {{
                 lat: lat,
                 lng: lng,
@@ -314,22 +296,11 @@ if st.session_state.sharing:
                 }}
             }}
 
-            // lọc điểm thẳng hàng trước khi lưu
-            if (lastPoint && prevPoint) {{
-                if (!shouldSavePoint(prevPoint, lastPoint, trackPoint)) {{
-                    // bỏ qua điểm giữa, nhưng vẫn cập nhật biến
-                    prevPoint = lastPoint;
-                    lastPoint = trackPoint;
-                    return;
-                }}
-            }}
-
             push(ref(database, 'tracks/'+username+'/points'), trackPoint);
 
-            prevPoint = lastPoint;
-            lastPoint = trackPoint;
             lastLat = lat;
             lastLng = lng;
+            lastPoint = trackPoint;
 
         }}, function(error){{
             console.log("GPS error:", error);
@@ -440,8 +411,54 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 10. PHÂN TÍCH TUẦN TRA (CHỈ GIỮ LẠI CÁC HÀM CẦN THIẾT)
+# 10. PHÂN TÍCH TUẦN TRA (THÊM MỚI)
 # ==============================
+def analyze_patrol_gaps():
+    try:
+        cutoff = int(time.time() * 1000) - 30 * 60 * 1000
+        tracks = db.child("tracks").get().val()
+        if not tracks:
+            return []
+        points = []
+        for uid, data in tracks.items():
+            pts = data.get("points")
+            if pts:
+                for key, pt in pts.items():
+                    if pt.get("timestamp", 0) > cutoff:
+                        points.append((pt["lat"], pt["lng"]))
+        if not points:
+            return []
+        grid_size = 0.005  # ~500m
+        covered = set()
+        for lat, lng in points:
+            x = int(lat / grid_size)
+            y = int(lng / grid_size)
+            covered.add((x, y))
+        lats = [p[0] for p in points]
+        lngs = [p[1] for p in points]
+        min_lat, max_lat = min(lats), max(lats)
+        min_lng, max_lng = min(lngs), max(lngs)
+        margin = 0.01
+        min_lat -= margin
+        max_lat += margin
+        min_lng -= margin
+        max_lng += margin
+        x_start = int(min_lat / grid_size)
+        x_end = int(max_lat / grid_size)
+        y_start = int(min_lng / grid_size)
+        y_end = int(max_lng / grid_size)
+        gaps = []
+        for i in range(x_start, x_end+1):
+            for j in range(y_start, y_end+1):
+                if (i, j) not in covered:
+                    center_lat = (i + 0.5) * grid_size
+                    center_lng = (j + 0.5) * grid_size
+                    gaps.append({"lat": center_lat, "lng": center_lng})
+        return gaps
+    except Exception as e:
+        print("Gap detection error:", e)
+        return []
+
 def detect_stationary_officers():
     try:
         officers = db.child("officers").get().val()
@@ -463,6 +480,23 @@ def detect_stationary_officers():
         return stationary
     except Exception as e:
         print("Stationary detection error:", e)
+        return []
+
+def get_heatmap_data():
+    try:
+        cutoff = int(time.time() * 1000) - 24 * 60 * 60 * 1000
+        tracks = db.child("tracks").get().val()
+        points = []
+        if tracks:
+            for uid, data in tracks.items():
+                pts = data.get("points")
+                if pts:
+                    for key, pt in pts.items():
+                        if pt.get("timestamp", 0) > cutoff:
+                            points.append([pt["lat"], pt["lng"]])
+        return points
+    except Exception as e:
+        print("Heatmap error:", e)
         return []
 
 # ==============================
@@ -644,12 +678,18 @@ alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
 fcm_vapid_key = st.secrets.get("fcm", {}).get("vapid_key", "")
 
-# Lấy dữ liệu cán bộ đứng yên
+# Lấy dữ liệu phân tích
+patrol_gaps = analyze_patrol_gaps()
+patrol_gaps_json = json.dumps(patrol_gaps)
+
 stationary_officers = detect_stationary_officers()
 stationary_json = json.dumps(stationary_officers)
 
+heatmap_data = get_heatmap_data()
+heatmap_json = json.dumps(heatmap_data)
+
 # ==============================
-# 17. HTML BẢN ĐỒ REALTIME (KHÔNG HEATMAP, CHỈ VÒNG TRÒN XANH)
+# 17. HTML BẢN ĐỒ REALTIME (ĐÃ TÍCH HỢP 3 TÍNH NĂNG MỚI)
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -659,6 +699,8 @@ map_html = f"""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet.heat plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <!-- NoSleep.js -->
     <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
     <style>
@@ -726,8 +768,10 @@ map_html = f"""
     const myName = "{name}";
     const showTracks = {show_tracks_json};
 
-    // Dữ liệu cán bộ đứng yên
+    // Dữ liệu phân tích
+    const patrolGaps = {patrol_gaps_json};
     const stationaryOfficers = {stationary_json};
+    const heatPoints = {heatmap_json};
 
     console.log("👤 Username:", myUsername);
 
@@ -781,10 +825,9 @@ map_html = f"""
         map = L.map('map').setView([21.0285, 105.8542], 13);
     }}
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap',
-    maxZoom: 19
-    }).addTo(map);
+    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+        attribution: '&copy; OpenStreetMap'
+    }}).addTo(map);
 
     // Lưu vị trí map khi di chuyển
     map.on('moveend', () => {{
@@ -844,7 +887,23 @@ map_html = f"""
         );
     }}
 
-    // ===== CÁN BỘ ĐỨNG YÊN (cảnh báo màu cam) =====
+    // ===== HEATMAP =====
+    if (heatPoints.length > 0) {{
+        L.heatLayer(heatPoints, {{radius: 25, blur: 15, maxZoom: 17}}).addTo(map);
+    }}
+
+    // ===== PATROL GAPS =====
+    patrolGaps.forEach(gap => {{
+        L.circleMarker([gap.lat, gap.lng], {{
+            radius: 10,
+            color: 'red',
+            fillColor: 'red',
+            fillOpacity: 0.2,
+            weight: 1
+        }}).addTo(map).bindTooltip('Khu vực thiếu tuần tra');
+    }});
+
+    // ===== STATIONARY OFFICERS =====
     stationaryOfficers.forEach(officer => {{
         L.circleMarker([officer.lat, officer.lng], {{
             radius: 8,
