@@ -128,7 +128,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. JAVASCRIPT LẤY GPS (SMOOTHING VERSION)
+# 7. JAVASCRIPT LẤY GPS (SMOOTHING + THROTTLE + FILTER)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -151,12 +151,15 @@ if st.session_state.sharing:
     const username = "{username}";
     const officerName = "{name}";
 
-    // ===== GPS SMOOTHING SCRIPT =====
+    // ===== GPS SMOOTHING + OPTIMIZATION =====
     let lastLat = null;
     let lastLng = null;
     let lastPoint = null;
+    let prevPoint = null;
     let lastBearing = null;
     let trackBuffer = [];
+    let lastSendTime = 0;
+    const SEND_INTERVAL = 5000; // 5 giây
 
     // hàm tính khoảng cách
     function distance(lat1, lon1, lat2, lon2) {{
@@ -187,6 +190,18 @@ if st.session_state.sharing:
             Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(dLon);
 
         return (toDeg(Math.atan2(y,x)) + 360) % 360;
+    }}
+
+    // kiểm tra điểm thẳng hàng
+    function shouldSavePoint(p1, p2, p3) {{
+        const b1 = getBearing(p1.lat, p1.lng, p2.lat, p2.lng);
+        const b2 = getBearing(p2.lat, p2.lng, p3.lat, p3.lng);
+
+        let angle = Math.abs(b1 - b2);
+        if (angle > 180) angle = 360 - angle;
+
+        // Nếu gần thẳng hàng (góc < 10 độ) thì bỏ qua
+        return angle >= 10;
     }}
 
     // ổn định đường thẳng
@@ -255,7 +270,7 @@ if st.session_state.sharing:
 
             const now=Date.now();
 
-            // gửi vị trí lên officers (để realtime)
+            // gửi vị trí lên officers (để realtime) - không throttle
             const officerRef = ref(database, 'officers/' + username);
             set(officerRef, {{
                 name: officerName,
@@ -269,7 +284,10 @@ if st.session_state.sharing:
                 offlineAt: serverTimestamp()
             }});
 
-            // lưu track
+            // lưu track có throttle 5 giây
+            if (now - lastSendTime < SEND_INTERVAL) return;
+            lastSendTime = now;
+
             const trackPoint = {{
                 lat: lat,
                 lng: lng,
@@ -296,11 +314,22 @@ if st.session_state.sharing:
                 }}
             }}
 
+            // lọc điểm thẳng hàng trước khi lưu
+            if (lastPoint && prevPoint) {{
+                if (!shouldSavePoint(prevPoint, lastPoint, trackPoint)) {{
+                    // bỏ qua điểm giữa, nhưng vẫn cập nhật biến
+                    prevPoint = lastPoint;
+                    lastPoint = trackPoint;
+                    return;
+                }}
+            }}
+
             push(ref(database, 'tracks/'+username+'/points'), trackPoint);
 
+            prevPoint = lastPoint;
+            lastPoint = trackPoint;
             lastLat = lat;
             lastLng = lng;
-            lastPoint = trackPoint;
 
         }}, function(error){{
             console.log("GPS error:", error);
@@ -411,7 +440,7 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 10. PHÂN TÍCH TUẦN TRA (THÊM MỚI)
+# 10. PHÂN TÍCH TUẦN TRA
 # ==============================
 def analyze_patrol_gaps():
     try:
@@ -689,7 +718,7 @@ heatmap_data = get_heatmap_data()
 heatmap_json = json.dumps(heatmap_data)
 
 # ==============================
-# 17. HTML BẢN ĐỒ REALTIME (ĐÃ TÍCH HỢP 3 TÍNH NĂNG MỚI)
+# 17. HTML BẢN ĐỒ REALTIME (HEATMAP TRONG SUỐT HƠN)
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -887,9 +916,15 @@ map_html = f"""
         );
     }}
 
-    // ===== HEATMAP =====
+    // ===== HEATMAP (GIẢM OPACITY) =====
     if (heatPoints.length > 0) {{
-        L.heatLayer(heatPoints, {{radius: 25, blur: 15, maxZoom: 17}}).addTo(map);
+        L.heatLayer(heatPoints, {{
+            radius: 25,
+            blur: 15,
+            maxZoom: 17,
+            gradient: {{0.4: 'blue', 0.6: 'lime', 0.8: 'yellow', 1.0: 'red'}},
+            opacity: 0.5  // giảm opacity để không che mất nền
+        }}).addTo(map);
     }}
 
     // ===== PATROL GAPS =====
