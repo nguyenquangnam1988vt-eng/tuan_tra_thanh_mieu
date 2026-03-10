@@ -128,7 +128,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. JAVASCRIPT LẤY GPS (dùng serverTimestamp)
+# 7. JAVASCRIPT LẤY GPS (SMOOTHING VERSION)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -138,7 +138,6 @@ if st.session_state.sharing:
         getDatabase, 
         ref, 
         set, 
-        get, 
         push, 
         onDisconnect, 
         onChildAdded,
@@ -152,65 +151,167 @@ if st.session_state.sharing:
     const username = "{username}";
     const officerName = "{name}";
 
-    function haversine(lat1, lng1, lat2, lng2) {{
-        const R = 6371e3;
-        const φ1 = lat1 * Math.PI/180;
-        const φ2 = lat2 * Math.PI/180;
-        const Δφ = (lat2 - lat1) * Math.PI/180;
-        const Δλ = (lng2 - lng1) * Math.PI/180;
-        const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+    // ===== GPS SMOOTHING SCRIPT =====
+    let lastLat = null;
+    let lastLng = null;
+    let lastPoint = null;
+    let lastBearing = null;
+    let trackBuffer = [];
+
+    // hàm tính khoảng cách
+    function distance(lat1, lon1, lat2, lon2) {{
+        const R = 6371000;
+        const dLat = (lat2-lat1) * Math.PI/180;
+        const dLon = (lon2-lon1) * Math.PI/180;
+
+        const a =
+            Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1*Math.PI/180) *
+            Math.cos(lat2*Math.PI/180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R * c;
     }}
 
-    if (navigator.geolocation) {{
-        navigator.geolocation.watchPosition(
-            (position) => {{
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-                const accuracy = position.coords.accuracy;
-                if (accuracy > 30) return;
+    // tính hướng di chuyển
+    function getBearing(lat1, lon1, lat2, lon2) {{
+        const toRad = d => d * Math.PI/180;
+        const toDeg = r => r * 180/Math.PI;
 
-                const officerRef = ref(database, 'officers/' + username);
-                set(officerRef, {{
-                    name: officerName,
-                    lat: lat,
-                    lng: lng,
-                    accuracy: accuracy,
-                    lastUpdate: serverTimestamp()
-                }});
-                
-                // Khi mất kết nối, đánh dấu offline và ghi thời gian
-                onDisconnect(officerRef).update({{
-                    lastUpdate: 0,
-                    offlineAt: serverTimestamp()
-                }});
+        const dLon = toRad(lon2 - lon1);
 
-                // Lưu track thông minh
-                const lastTrackRef = ref(database, 'tracks/' + username + '/last');
-                get(lastTrackRef).then((snapshot) => {{
-                    const last = snapshot.val();
-                    const now = Date.now(); // timestamp hiện tại (client)
-                    let distance = 0;
-                    if (last) {{
-                        distance = haversine(last.lat, last.lng, lat, lng);
-                    }}
-                    if (!last || (distance >= 10 && distance < 100) || now - last.timestamp > 60000) {{
-                        const trackPoint = {{ 
-                            lat, 
-                            lng, 
-                            timestamp: serverTimestamp() 
-                        }};
-                        push(ref(database, 'tracks/' + username + '/points'), trackPoint);
-                        set(lastTrackRef, {{lat, lng, timestamp: serverTimestamp()}});
-                    }}
-                }});
-            }},
-            (error) => console.error("GPS error:", error),
-            {{ enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }}
-        );
+        const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+        const x =
+            Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) -
+            Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(dLon);
+
+        return (toDeg(Math.atan2(y,x)) + 360) % 360;
     }}
 
+    // ổn định đường thẳng
+    function stabilizeLine(lat,lng){{
+        trackBuffer.push({{lat,lng}});
+
+        if(trackBuffer.length>3)
+            trackBuffer.shift();
+
+        if(trackBuffer.length<3)
+            return {{lat,lng}};
+
+        const p1=trackBuffer[0];
+        const p2=trackBuffer[1];
+        const p3=trackBuffer[2];
+
+        const b1=getBearing(p1.lat,p1.lng,p2.lat,p2.lng);
+        const b2=getBearing(p2.lat,p2.lng,p3.lat,p3.lng);
+
+        if(Math.abs(b1-b2)<15){{
+            lat=(p1.lat+p2.lat+p3.lat)/3;
+            lng=(p1.lng+p2.lng+p3.lng)/3;
+        }}
+
+        return {{lat,lng}};
+    }}
+
+    // ===== GPS watcher =====
+    if (navigator.geolocation) {{
+        navigator.geolocation.watchPosition(function(position){{
+            const accuracy=position.coords.accuracy;
+            if(accuracy>25) return;
+
+            let lat=position.coords.latitude;
+            let lng=position.coords.longitude;
+
+            // smoothing
+            if(lastLat!==null){{
+                lat=lastLat*0.7 + lat*0.3;
+                lng=lastLng*0.7 + lng*0.3;
+            }}
+
+            // direction lock
+            if(lastPoint){{
+                const bearing=getBearing(
+                    lastPoint.lat,
+                    lastPoint.lng,
+                    lat,
+                    lng
+                );
+
+                if(lastBearing!==null){{
+                    const diff=Math.abs(bearing-lastBearing);
+                    if(diff>60 && diff<300){{
+                        lat=lastPoint.lat*0.85 + lat*0.15;
+                        lng=lastPoint.lng*0.85 + lng*0.15;
+                    }}
+                }}
+                lastBearing=bearing;
+            }}
+
+            // stabilize straight line
+            const stabilized=stabilizeLine(lat,lng);
+            lat=stabilized.lat;
+            lng=stabilized.lng;
+
+            const now=Date.now();
+
+            // gửi vị trí lên officers (để realtime)
+            const officerRef = ref(database, 'officers/' + username);
+            set(officerRef, {{
+                name: officerName,
+                lat: lat,
+                lng: lng,
+                accuracy: accuracy,
+                lastUpdate: serverTimestamp()
+            }});
+            onDisconnect(officerRef).update({{
+                lastUpdate: 0,
+                offlineAt: serverTimestamp()
+            }});
+
+            // lưu track
+            const trackPoint = {{
+                lat: lat,
+                lng: lng,
+                timestamp: serverTimestamp()
+            }};
+
+            // nội suy điểm giữa nếu khoảng cách hợp lý
+            if(lastPoint){{
+                const dist = distance(
+                    lastPoint.lat,
+                    lastPoint.lng,
+                    lat,
+                    lng
+                );
+
+                if(dist>5 && dist<60){{
+                    const midLat=(lastPoint.lat+lat)/2;
+                    const midLng=(lastPoint.lng+lng)/2;
+                    push(ref(database, 'tracks/'+username+'/points'), {{
+                        lat: midLat,
+                        lng: midLng,
+                        timestamp: serverTimestamp()
+                    }});
+                }}
+            }}
+
+            push(ref(database, 'tracks/'+username+'/points'), trackPoint);
+
+            lastLat = lat;
+            lastLng = lng;
+            lastPoint = trackPoint;
+
+        }}, function(error){{
+            console.log("GPS error:", error);
+        }}, {{
+            enableHighAccuracy: true,
+            maximumAge: 5000,
+            timeout: 10000
+        }});
+    }}
+
+    // ===== XỬ LÝ BÁO ĐỘNG =====
     const alertRequestsRef = ref(database, 'alert_requests');
     onChildAdded(alertRequestsRef, (data) => {{
         const req = data.val();
@@ -310,7 +411,96 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 10. SIDEBAR CÔNG CỤ
+# 10. PHÂN TÍCH TUẦN TRA (THÊM MỚI)
+# ==============================
+def analyze_patrol_gaps():
+    try:
+        cutoff = int(time.time() * 1000) - 30 * 60 * 1000
+        tracks = db.child("tracks").get().val()
+        if not tracks:
+            return []
+        points = []
+        for uid, data in tracks.items():
+            pts = data.get("points")
+            if pts:
+                for key, pt in pts.items():
+                    if pt.get("timestamp", 0) > cutoff:
+                        points.append((pt["lat"], pt["lng"]))
+        if not points:
+            return []
+        grid_size = 0.005  # ~500m
+        covered = set()
+        for lat, lng in points:
+            x = int(lat / grid_size)
+            y = int(lng / grid_size)
+            covered.add((x, y))
+        lats = [p[0] for p in points]
+        lngs = [p[1] for p in points]
+        min_lat, max_lat = min(lats), max(lats)
+        min_lng, max_lng = min(lngs), max(lngs)
+        margin = 0.01
+        min_lat -= margin
+        max_lat += margin
+        min_lng -= margin
+        max_lng += margin
+        x_start = int(min_lat / grid_size)
+        x_end = int(max_lat / grid_size)
+        y_start = int(min_lng / grid_size)
+        y_end = int(max_lng / grid_size)
+        gaps = []
+        for i in range(x_start, x_end+1):
+            for j in range(y_start, y_end+1):
+                if (i, j) not in covered:
+                    center_lat = (i + 0.5) * grid_size
+                    center_lng = (j + 0.5) * grid_size
+                    gaps.append({"lat": center_lat, "lng": center_lng})
+        return gaps
+    except Exception as e:
+        print("Gap detection error:", e)
+        return []
+
+def detect_stationary_officers():
+    try:
+        officers = db.child("officers").get().val()
+        if not officers:
+            return []
+        now = int(time.time() * 1000)
+        threshold = 15 * 60 * 1000
+        stationary = []
+        for uid, data in officers.items():
+            last = data.get("lastUpdate")
+            if last and now - last > threshold:
+                stationary.append({
+                    "uid": uid,
+                    "name": data.get("name"),
+                    "lat": data.get("lat"),
+                    "lng": data.get("lng"),
+                    "lastUpdate": last
+                })
+        return stationary
+    except Exception as e:
+        print("Stationary detection error:", e)
+        return []
+
+def get_heatmap_data():
+    try:
+        cutoff = int(time.time() * 1000) - 24 * 60 * 60 * 1000
+        tracks = db.child("tracks").get().val()
+        points = []
+        if tracks:
+            for uid, data in tracks.items():
+                pts = data.get("points")
+                if pts:
+                    for key, pt in pts.items():
+                        if pt.get("timestamp", 0) > cutoff:
+                            points.append([pt["lat"], pt["lng"]])
+        return points
+    except Exception as e:
+        print("Heatmap error:", e)
+        return []
+
+# ==============================
+# 11. SIDEBAR CÔNG CỤ
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🚨 Công cụ phối hợp")
@@ -393,7 +583,7 @@ with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
                     st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
 
 # ==============================
-# 11. NHIỆM VỤ
+# 12. NHIỆM VỤ
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("📋 Nhiệm vụ")
@@ -417,7 +607,7 @@ if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
         st.sidebar.info("Không có báo động nào")
 
 # ==============================
-# 12. HÀM LOAD DỮ LIỆU
+# 13. HÀM LOAD DỮ LIỆU
 # ==============================
 @st.cache_data(ttl=5)
 def load_officers():
@@ -457,12 +647,12 @@ def load_incidents():
         return {}
 
 # ==============================
-# 13. TỰ ĐỘNG REFRESH
+# 14. TỰ ĐỘNG REFRESH
 # ==============================
 st_autorefresh(interval=15000, key="auto_refresh")
 
 # ==============================
-# 14. CHECKBOX HIỂN THỊ TRACK
+# 15. CHECKBOX HIỂN THỊ TRACK
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🗺️ Lịch sử di chuyển")
@@ -482,14 +672,24 @@ if officers:
         st.session_state.show_tracks[uid] = checked
 
 # ==============================
-# 15. CHUẨN BỊ DỮ LIỆU CHO MAP
+# 16. CHUẨN BỊ DỮ LIỆU CHO MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
 fcm_vapid_key = st.secrets.get("fcm", {}).get("vapid_key", "")
 
+# Lấy dữ liệu phân tích
+patrol_gaps = analyze_patrol_gaps()
+patrol_gaps_json = json.dumps(patrol_gaps)
+
+stationary_officers = detect_stationary_officers()
+stationary_json = json.dumps(stationary_officers)
+
+heatmap_data = get_heatmap_data()
+heatmap_json = json.dumps(heatmap_data)
+
 # ==============================
-# 16. HTML BẢN ĐỒ REALTIME (đã cập nhật limitToLast 100 và zoom toàn đội)
+# 17. HTML BẢN ĐỒ REALTIME (ĐÃ TÍCH HỢP 3 TÍNH NĂNG MỚI)
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -499,6 +699,8 @@ map_html = f"""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet.heat plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <!-- NoSleep.js -->
     <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
     <style>
@@ -565,6 +767,11 @@ map_html = f"""
     const myUsername = "{username}";
     const myName = "{name}";
     const showTracks = {show_tracks_json};
+
+    // Dữ liệu phân tích
+    const patrolGaps = {patrol_gaps_json};
+    const stationaryOfficers = {stationary_json};
+    const heatPoints = {heatmap_json};
 
     console.log("👤 Username:", myUsername);
 
@@ -680,6 +887,33 @@ map_html = f"""
         );
     }}
 
+    // ===== HEATMAP =====
+    if (heatPoints.length > 0) {{
+        L.heatLayer(heatPoints, {{radius: 25, blur: 15, maxZoom: 17}}).addTo(map);
+    }}
+
+    // ===== PATROL GAPS =====
+    patrolGaps.forEach(gap => {{
+        L.circleMarker([gap.lat, gap.lng], {{
+            radius: 10,
+            color: 'red',
+            fillColor: 'red',
+            fillOpacity: 0.2,
+            weight: 1
+        }}).addTo(map).bindTooltip('Khu vực thiếu tuần tra');
+    }});
+
+    // ===== STATIONARY OFFICERS =====
+    stationaryOfficers.forEach(officer => {{
+        L.circleMarker([officer.lat, officer.lng], {{
+            radius: 8,
+            color: 'orange',
+            fillColor: 'orange',
+            fillOpacity: 0.8,
+            weight: 2
+        }}).addTo(map).bindTooltip(`⚠ ${{officer.name}} đứng yên >15 phút`);
+    }});
+
     // ===== OFFICERS =====
     const officersRef = ref(db, 'officers');
     onChildAdded(officersRef, (data) => {{
@@ -766,7 +1000,13 @@ map_html = f"""
             // Xác định trạng thái
             let statusText = "";
             if (alert.status === "pending") statusText = "🟥 Chưa xử lý";
-            else if (alert.status === "accepted") statusText = "🟨 Đang xử lý";
+            else if (alert.status === "accepted") {{
+                if (alert.accepted_by) {{
+                    statusText = `🟨 Đang xử lý bởi ${{alert.accepted_by}}`;
+                }} else {{
+                    statusText = "🟨 Đang xử lý";
+                }}
+            }}
             else if (alert.status === "resolved") statusText = "🟩 Đã xong";
             else statusText = "Không rõ";
 
@@ -896,7 +1136,7 @@ map_html = f"""
     // ===== VẼ TRACK (giới hạn 100 điểm) =====
     function loadUserTracks(userId, userName, show) {{
         const tracksRef = ref(db, 'tracks/' + userId + '/points');
-        const tracksQuery = query(tracksRef, limitToLast(100)); // 👈 giảm từ 200 xuống 100
+        const tracksQuery = query(tracksRef, limitToLast(100));
         if (!show) {{
             if (trackPolylines[userId]) {{
                 map.removeLayer(trackPolylines[userId]);
@@ -939,10 +1179,7 @@ map_html = f"""
         map.fitBounds(group.getBounds(), {{ padding: [50, 50] }});
     }}
 
-    // Gọi zoomToAllOfficers sau mỗi lần có thay đổi officers
     onValue(officersRef, (snapshot) => {{
-        // ... (phần loadTracks đã có)
-        // Gọi zoom khi có nhiều hơn 1 officer
         const officers = snapshot.val() || {{}};
         if (Object.keys(officers).length > 1) {{
             zoomToAllOfficers();
@@ -958,7 +1195,7 @@ map_html = f"""
 """
 
 # ==============================
-# 17. TABS: BẢN ĐỒ VÀ CHAT
+# 18. TABS: BẢN ĐỒ VÀ CHAT
 # ==============================
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
@@ -1019,7 +1256,7 @@ with tab2:
             st.rerun()
 
 # ==============================
-# 18. DANH SÁCH CÁN BỘ ONLINE
+# 19. DANH SÁCH CÁN BỘ ONLINE
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("👥 Cán bộ trực tuyến")
@@ -1032,7 +1269,7 @@ else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí")
 
 # ==============================
-# 19. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
+# 20. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
 # ==============================
 all_markers = load_all_markers()
 with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
@@ -1049,7 +1286,7 @@ with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
         st.write("Chưa có điểm đánh dấu")
 
 # ==============================
-# 20. INCIDENTS GẦN ĐÂY
+# 21. INCIDENTS GẦN ĐÂY
 # ==============================
 incidents = load_incidents()
 with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
