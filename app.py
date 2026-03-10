@@ -916,14 +916,14 @@ map_html = f"""
         );
     }}
 
-    // ===== HEATMAP (GIẢM OPACITY) =====
+    // ===== HEATMAP (GIẢM OPACITY VÀ TINH CHỈNH MÀU) =====
     if (heatPoints.length > 0) {{
         L.heatLayer(heatPoints, {{
-            radius: 25,
-            blur: 15,
+            radius: 20,
+            blur: 10,
             maxZoom: 17,
-            gradient: {{0.4: 'blue', 0.6: 'lime', 0.8: 'yellow', 1.0: 'red'}},
-            opacity: 0.5  // giảm opacity để không che mất nền
+            gradient: {{0.2: 'blue', 0.4: 'lime', 0.6: 'yellow', 0.8: 'red'}},
+            opacity: 0.4  // giảm opacity để không che mất nền
         }}).addTo(map);
     }}
 
@@ -1236,6 +1236,8 @@ tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
 with tab1:
     st.components.v1.html(map_html, height=620)
+    # Thêm autorefresh cho heatmap 6 giờ (21600000 ms)
+    st_autorefresh(interval=21600000, key="heatmap_refresh")
 
 with tab2:
     st.subheader("💬 Chat nội bộ")
