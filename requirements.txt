@@ -6,3 +6,6 @@ streamlit-folium
 streamlit-autorefresh
 pyyaml
 streamlit-geolocation
+requests
+firebase-admin
+Pillow
