@@ -68,7 +68,7 @@ def load_credentials_from_firebase():
         # Nếu chưa có → tạo admin mặc định
         if not auth_data or "usernames" not in auth_data:
             default_password = "admin123"
-            hashed = stauth.Hasher([default_password]).generate()[0]
+            hashed = stauth.Hasher.hash(default_password)
 
             default_admin = {
                 "usernames": {
