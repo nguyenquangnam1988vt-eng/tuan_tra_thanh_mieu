@@ -1,5 +1,6 @@
 import streamlit as st
 import streamlit_authenticator as stauth
+from streamlit_authenticator.utilities.hasher import Hasher
 import yaml
 from yaml.loader import SafeLoader
 import pyrebase
@@ -637,7 +638,7 @@ if user_role == "admin":
             elif new_username in config["credentials"]["usernames"]:
                 st.sidebar.error("Tên đăng nhập đã tồn tại")
             else:
-                hashed = stauth.Hasher([new_password]).generate()[0]
+                hashed = Hasher([default_password]).generate()[0]
                 config["credentials"]["usernames"][new_username] = {
                     "email": new_email,
                     "name": new_name,
