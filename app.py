@@ -69,7 +69,7 @@ def load_credentials_from_firebase():
         # Nếu chưa có → tạo admin mặc định
         if not auth_data or "usernames" not in auth_data:
             default_password = "admin123"
-            hashed = stauth.Hasher.hash(default_password)
+            hashed = Hasher([default_password]).generate()[0]
 
             default_admin = {
                 "usernames": {
@@ -638,7 +638,7 @@ if user_role == "admin":
             elif new_username in config["credentials"]["usernames"]:
                 st.sidebar.error("Tên đăng nhập đã tồn tại")
             else:
-                hashed = Hasher([default_password]).generate()[0]
+                hashed = Hasher([new_password]).generate()[0]
                 config["credentials"]["usernames"][new_username] = {
                     "email": new_email,
                     "name": new_name,
