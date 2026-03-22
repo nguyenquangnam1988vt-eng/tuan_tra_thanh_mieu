@@ -4,10 +4,14 @@ credentials:
       email: nguyenvana@example.com
       name: nguyenvana
       password: $2b$12$RafoCiWmAk1ZbV8kS8tKye8Zza9s6KtjYMmfMphi6zg3ubyfrcfW.
+      role: admin           # Quyền admin
+      color: "#FFD700"      # Màu vàng kim
     tranthib:
       email: tranthib@example.com
       name: tranthib
       password: $2b$12$RafoCiWmAk1ZbV8kS8tKye8Zza9s6KtjYMmfMphi6zg3ubyfrcfW.
+      role: officer         # Quyền cán bộ thường
+      color: "#0066cc"      # Màu xanh
 cookie:
   expiry_days: 7
   key: dummy_key_will_be_replaced_by_secrets
