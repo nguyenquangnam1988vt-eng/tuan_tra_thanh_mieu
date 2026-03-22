@@ -59,12 +59,58 @@ firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
 
 # ==============================
-# 3. AUTHENTICATION
+# 3. AUTHENTICATION (từ Firebase)
 # ==============================
-with open("config.yaml") as file:
-    config = yaml.load(file, Loader=SafeLoader)
+def load_credentials_from_firebase():
+    """Lấy credentials từ Firebase, nếu chưa có thì tạo admin mặc định"""
+    try:
+        auth_data = db.child("auth_credentials").get().val()
+        if auth_data:
+            # Đảm bảo cấu trúc {"usernames": {...}}
+            if "usernames" in auth_data:
+                return auth_data
+            else:
+                return {"usernames": auth_data}
+        else:
+            # Tạo admin mặc định nếu chưa có
+            default_password = "admin123"  # Đổi mật khẩu sau khi đăng nhập
+            hashed = stauth.Hasher([default_password]).generate()[0]
+            default_admin = {
+                "usernames": {
+                    "admin": {
+                        "email": "admin@example.com",
+                        "name": "Quản trị viên",
+                        "password": hashed,
+                        "role": "admin",
+                        "color": "#FFD700"
+                    }
+                }
+            }
+            db.child("auth_credentials").set(default_admin)
+            return default_admin
+    except Exception as e:
+        st.error(f"Lỗi tải credentials: {e}")
+        return {"usernames": {}}
 
-config["cookie"]["key"] = st.secrets["auth"]["cookie_key"]
+def save_credentials_to_firebase(credentials):
+    """Lưu credentials vào Firebase"""
+    try:
+        db.child("auth_credentials").set(credentials)
+        return True
+    except Exception as e:
+        st.error(f"Lỗi lưu credentials: {e}")
+        return False
+
+# Đọc credentials từ Firebase
+credentials_data = load_credentials_from_firebase()
+config = {
+    "credentials": credentials_data,
+    "cookie": {
+        "expiry_days": 7,
+        "key": st.secrets["auth"]["cookie_key"],
+        "name": "tuan_tra_cookie"
+    }
+}
 
 authenticator = stauth.Authenticate(
     config["credentials"],
@@ -95,7 +141,7 @@ authenticator.logout("Đăng xuất", "sidebar")
 st.sidebar.success(f"Xin chào {name}")
 
 # ==============================
-# 5. LẤY THÔNG TIN ROLE VÀ MÀU SẮC
+# 5. LẤY THÔNG TIN ROLE VÀ MÀU SẮC (từ credentials)
 # ==============================
 user_role = config["credentials"]["usernames"][username].get("role", "officer")
 user_color = config["credentials"]["usernames"][username].get("color", "#0066cc")
@@ -545,25 +591,59 @@ if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
         st.sidebar.info("Không có báo động nào")
 
 # ==============================
-# 14. QUẢN LÝ USER (ADMIN)
+# 14. QUẢN LÝ USER (ADMIN) - THÊM/XÓA TRONG GIAO DIỆN
 # ==============================
 if user_role == "admin":
     st.sidebar.markdown("---")
     st.sidebar.subheader("👤 Quản lý tài khoản")
-    with st.sidebar.expander("➕ Thêm user mới (thủ công)"):
-        st.markdown("""
-        Để thêm user, bạn cần chỉnh sửa file `config.yaml` với cấu trúc:
-        ```yaml
-        username:
-          email: email@example.com
-          name: Tên hiển thị
-          password: $2b$12$... (hash mật khẩu)
-          role: admin/commander/officer
-          color: mã màu (ví dụ #ff0000)
-        ```
-        Mật khẩu hash có thể tạo bằng stauth.Hasher(['matkhau']).generate()[0].
-        Sau đó commit và push lại.
-        """)
+    
+    # Form thêm user mới
+    with st.sidebar.expander("➕ Thêm user mới"):
+        new_username = st.text_input("Tên đăng nhập")
+        new_email = st.text_input("Email")
+        new_name = st.text_input("Tên hiển thị")
+        new_password = st.text_input("Mật khẩu", type="password")
+        new_role = st.selectbox("Vai trò", ["admin", "commander", "officer"])
+        new_color = st.color_picker("Màu sắc", "#0066cc")
+        
+        if st.button("Tạo tài khoản"):
+            if new_username and new_password and new_name:
+                # Kiểm tra username đã tồn tại chưa
+                if new_username in config["credentials"]["usernames"]:
+                    st.sidebar.error("Tên đăng nhập đã tồn tại")
+                else:
+                    hashed = stauth.Hasher([new_password]).generate()[0]
+                    # Thêm vào credentials
+                    config["credentials"]["usernames"][new_username] = {
+                        "email": new_email,
+                        "name": new_name,
+                        "password": hashed,
+                        "role": new_role,
+                        "color": new_color
+                    }
+                    # Lưu lại Firebase
+                    if save_credentials_to_firebase(config["credentials"]):
+                        st.sidebar.success(f"Đã thêm user {new_username}")
+                        st.rerun()
+                    else:
+                        st.sidebar.error("Lỗi lưu dữ liệu")
+            else:
+                st.sidebar.warning("Vui lòng nhập đầy đủ thông tin")
+    
+    # Hiển thị danh sách user và cho phép xóa
+    with st.sidebar.expander("🗑️ Xóa user"):
+        users = list(config["credentials"]["usernames"].keys())
+        user_to_delete = st.selectbox("Chọn user để xóa", users, index=0 if users else None)
+        if st.button("Xóa user"):
+            if user_to_delete == username:
+                st.sidebar.error("Không thể xóa chính mình")
+            elif user_to_delete:
+                del config["credentials"]["usernames"][user_to_delete]
+                if save_credentials_to_firebase(config["credentials"]):
+                    st.sidebar.success(f"Đã xóa user {user_to_delete}")
+                    st.rerun()
+                else:
+                    st.sidebar.error("Lỗi lưu dữ liệu")
 
 # ==============================
 # 15. HÀM LOAD DỮ LIỆU
