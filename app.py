@@ -13,7 +13,7 @@ import requests
 import math
 
 # ==============================
-# 0. HÀM TIỆN ÍCH
+# 0. HÀM TIỆN ÍCH & KIỂM TRA TỌA ĐỘ
 # ==============================
 def get_base64(file_path):
     try:
@@ -31,6 +31,12 @@ def haversine(lat1, lng1, lat2, lng2):
     a = math.sin(delta_phi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(delta_lambda/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
+
+def is_valid_coordinate(lat, lng):
+    """Kiểm tra tọa độ hợp lệ trong Việt Nam (vĩ độ 8-24, kinh độ 102-110)"""
+    return (isinstance(lat, (int, float)) and isinstance(lng, (int, float)) and
+            lat != 0 and lng != 0 and
+            8 <= lat <= 24 and 102 <= lng <= 110)
 
 # ==============================
 # 1. HÀM UPLOAD ẢNH LÊN IMGBB
@@ -65,12 +71,9 @@ db = firebase.database()
 def load_credentials_from_firebase():
     try:
         auth_data = db.child("auth_credentials").get().val()
-
-        # Nếu chưa có → tạo admin mặc định
         if not auth_data or "usernames" not in auth_data:
             default_password = "admin123"
             hashed = Hasher([default_password]).generate()[0]
-
             default_admin = {
                 "usernames": {
                     "admin": {
@@ -82,20 +85,14 @@ def load_credentials_from_firebase():
                     }
                 }
             }
-
             db.child("auth_credentials").set(default_admin)
             return default_admin
 
-        # Đảm bảo dữ liệu sạch
         usernames = auth_data.get("usernames", {})
-
         clean_users = {}
-
         for u, info in usernames.items():
             if not isinstance(info, dict):
                 continue
-
-            # Đảm bảo đủ field
             clean_users[u] = {
                 "email": info.get("email", ""),
                 "name": info.get("name", u),
@@ -103,9 +100,7 @@ def load_credentials_from_firebase():
                 "role": info.get("role", "officer"),
                 "color": info.get("color", "#0066cc")
             }
-
         return {"usernames": clean_users}
-
     except Exception as e:
         st.error(f"Lỗi tải credentials: {e}")
         return {"usernames": {}}
@@ -118,10 +113,7 @@ def save_credentials_to_firebase(credentials):
         st.error(f"Lỗi lưu credentials: {e}")
         return False
 
-# Đọc credentials từ Firebase
 credentials_data = load_credentials_from_firebase()
-
-# Đọc config cookie từ file (nếu có) hoặc dùng mặc định
 try:
     with open("config.yaml") as file:
         config_yaml = yaml.load(file, Loader=SafeLoader)
@@ -163,8 +155,8 @@ elif authentication_status == None:
     st.warning("Vui lòng đăng nhập")
     st.stop()
 
-authenticator.logout("Đăng xuất", "sidebar")
-st.sidebar.success(f"Xin chào {name}")
+# Đăng xuất được đặt trong sidebar (sẽ gom chung)
+# st.sidebar.success(f"Xin chào {name}") sẽ ở trong with st.sidebar:
 
 # ==============================
 # 5. LẤY THÔNG TIN ROLE VÀ MÀU SẮC
@@ -208,22 +200,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. HÀM TÌM CÁN BỘ GẦN NHẤT
-# ==============================
-def find_nearest_officers(lat, lng, limit=3):
-    officers = db.child("officers").get().val()
-    if not officers:
-        return []
-    distances = []
-    for uid, data in officers.items():
-        if data.get("lat") and data.get("lng"):
-            d = haversine(lat, lng, data["lat"], data["lng"])
-            distances.append((uid, d))
-    distances.sort(key=lambda x: x[1])
-    return [uid for uid, _ in distances[:limit]]
-
-# ==============================
-# 8. JAVASCRIPT LẤY GPS
+# 7. JAVASCRIPT LẤY GPS (ĐÃ SỬA LỖI set lat=0, lng=0)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -247,10 +224,9 @@ if st.session_state.sharing:
     const officerName = "{name}";
 
     const officerRef = ref(database, 'officers/' + username);
+    // QUAN TRỌNG: KHÔNG set lat=0, lng=0 ban đầu
     set(officerRef, {{
         name: officerName,
-        lat: 0,
-        lng: 0,
         lastUpdate: serverTimestamp()
     }});
 
@@ -262,6 +238,10 @@ if st.session_state.sharing:
     let trackBuffer = [];
     let lastSendTime = 0;
     const SEND_INTERVAL = 5000;
+
+    function isValidVNCoordinate(lat, lng) {{
+        return (lat >= 8 && lat <= 24 && lng >= 102 && lng <= 110);
+    }}
 
     function distance(lat1, lon1, lat2, lon2) {{
         const R = 6371000;
@@ -306,35 +286,74 @@ if st.session_state.sharing:
         return {{lat,lng}};
     }}
 
+    let fallbackLat = null;
+    let fallbackLng = null;
+    fetch("https://ipapi.co/json/")
+        .then(res => res.json())
+        .then(data => {{
+            if (data.latitude && data.longitude && isValidVNCoordinate(data.latitude, data.longitude)) {{
+                fallbackLat = data.latitude;
+                fallbackLng = data.longitude;
+                console.log("🌐 IP location VN:", fallbackLat, fallbackLng);
+            }} else {{
+                fallbackLat = 21.0285;
+                fallbackLng = 105.8542;
+                console.log("🌐 Dùng fallback Hà Nội");
+            }}
+        }})
+        .catch(err => {{
+            fallbackLat = 21.0285;
+            fallbackLng = 105.8542;
+            console.log("🌐 Lỗi IP, dùng fallback Hà Nội");
+        }});
+
     if (navigator.geolocation) {{
         navigator.geolocation.watchPosition(function(position){{
-            let accuracy=position.coords.accuracy;
-            if(accuracy>25) return;
+            let accuracy = position.coords.accuracy;
+            if(accuracy > 25) return;
 
-            let lat=position.coords.latitude;
-            let lng=position.coords.longitude;
+            let lat = position.coords.latitude;
+            let lng = position.coords.longitude;
+
+            if (!isValidVNCoordinate(lat, lng)) {{
+                console.log("❌ GPS ngoài VN:", lat, lng);
+                if (fallbackLat && fallbackLng) {{
+                    lat = fallbackLat;
+                    lng = fallbackLng;
+                    console.log("✅ Dùng fallback:", lat, lng);
+                }} else {{
+                    return;
+                }}
+            }}
+
+            let shouldSend = true;
+            if(lastLat !== null){{
+                const dist = distance(lastLat, lastLng, lat, lng);
+                if(dist < 3) shouldSend = false;
+            }}
+            if(!shouldSend) return;
 
             if(lastLat!==null){{
-                lat=lastLat*0.7 + lat*0.3;
-                lng=lastLng*0.7 + lng*0.3;
+                lat = lastLat*0.7 + lat*0.3;
+                lng = lastLng*0.7 + lng*0.3;
             }}
 
             if(lastPoint){{
-                const bearing=getBearing(lastPoint.lat, lastPoint.lng, lat, lng);
+                const bearing = getBearing(lastPoint.lat, lastPoint.lng, lat, lng);
                 if(lastBearing!==null){{
-                    const diff=Math.abs(bearing-lastBearing);
+                    const diff = Math.abs(bearing - lastBearing);
                     if(diff>60 && diff<300){{
-                        lat=lastPoint.lat*0.85 + lat*0.15;
-                        lng=lastPoint.lng*0.85 + lng*0.15;
+                        lat = lastPoint.lat*0.85 + lat*0.15;
+                        lng = lastPoint.lng*0.85 + lng*0.15;
                     }}
                 }}
-                lastBearing=bearing;
+                lastBearing = bearing;
             }}
 
-            const stabilized=stabilizeLine(lat,lng);
-            lat=stabilized.lat;
-            lng=stabilized.lng;
-            const now=Date.now();
+            const stabilized = stabilizeLine(lat,lng);
+            lat = stabilized.lat;
+            lng = stabilized.lng;
+            const now = Date.now();
 
             set(officerRef, {{
                 name: officerName,
@@ -356,8 +375,8 @@ if st.session_state.sharing:
             if(lastPoint){{
                 const dist = distance(lastPoint.lat, lastPoint.lng, lat, lng);
                 if(dist>5 && dist<60){{
-                    const midLat=(lastPoint.lat+lat)/2;
-                    const midLng=(lastPoint.lng+lng)/2;
+                    const midLat = (lastPoint.lat+lat)/2;
+                    const midLng = (lastPoint.lng+lng)/2;
                     push(ref(database, 'tracks/'+username+'/points'), {{
                         lat: midLat,
                         lng: midLng,
@@ -382,6 +401,15 @@ if st.session_state.sharing:
 
         }}, function(error){{
             console.log("GPS error:", error);
+            if (fallbackLat && fallbackLng) {{
+                set(officerRef, {{
+                    name: officerName,
+                    lat: fallbackLat,
+                    lng: fallbackLng,
+                    accuracy: 0,
+                    lastUpdate: serverTimestamp()
+                }});
+            }}
         }}, {{
             enableHighAccuracy: true,
             maximumAge: 5000,
@@ -412,7 +440,7 @@ if st.session_state.sharing:
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
-# 9. HÀM GỬI THÔNG BÁO FCM
+# 8. HÀM GỬI THÔNG BÁO FCM
 # ==============================
 def send_fcm_notification(title, body, target_token, server_key):
     url = "https://fcm.googleapis.com/fcm/send"
@@ -436,7 +464,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 10. CLEANUP DỮ LIỆU CŨ
+# 9. CLEANUP DỮ LIỆU CŨ
 # ==============================
 def cleanup_old_data():
     try:
@@ -487,7 +515,7 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 11. PHÂN TÍCH CÁN BỘ ĐỨNG YÊN
+# 10. PHÂN TÍCH CÁN BỘ ĐỨNG YÊN (lọc tọa độ)
 # ==============================
 def detect_stationary_officers():
     try:
@@ -498,186 +526,48 @@ def detect_stationary_officers():
         threshold = 15 * 60 * 1000
         stationary = []
         for uid, data in officers.items():
-            last = data.get("lastUpdate")
-            if last and now - last > threshold:
-                stationary.append({
-                    "uid": uid,
-                    "name": data.get("name"),
-                    "lat": data.get("lat"),
-                    "lng": data.get("lng"),
-                    "lastUpdate": last
-                })
+            if is_valid_coordinate(data.get("lat"), data.get("lng")):
+                last = data.get("lastUpdate")
+                if last and now - last > threshold:
+                    stationary.append({
+                        "uid": uid,
+                        "name": data.get("name"),
+                        "lat": data["lat"],
+                        "lng": data["lng"],
+                        "lastUpdate": last
+                    })
         return stationary
     except Exception as e:
         print("Stationary detection error:", e)
         return []
 
 # ==============================
-# 12. SIDEBAR CÔNG CỤ
+# 11. HÀM TÌM CÁN BỘ GẦN NHẤT (lọc tọa độ)
 # ==============================
-st.sidebar.markdown("---")
-st.sidebar.subheader("🚨 Công cụ phối hợp")
-
-if st.sidebar.button("🚨 Gửi báo động"):
-    user_data = db.child("officers").child(username).get().val()
-    if user_data:
-        lat = user_data["lat"]
-        lng = user_data["lng"]
-        nearest = find_nearest_officers(lat, lng)
-        request_data = {
-            "username": username,
-            "name": name,
-            "lat": lat,
-            "lng": lng,
-            "assigned": nearest,
-            "status": "pending",
-            "timestamp": int(time.time() * 1000)
-        }
-        db.child("alert_requests").push(request_data)
-
-        server_key = st.secrets.get("fcm", {}).get("server_key", "")
-        if server_key:
-            tokens = db.child("fcm_tokens").get().val() or {}
-            for uid, token in tokens.items():
-                if uid != username:
-                    send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
-
-        st.sidebar.success("Đã gửi yêu cầu báo động")
-    else:
-        st.sidebar.error("Bạn chưa chia sẻ vị trí")
-
-with st.sidebar.expander("📍 Đánh dấu điểm"):
-    note = st.text_area("Ghi chú")
-    if st.button("Thêm điểm tại vị trí hiện tại"):
-        current = db.child("officers").child(username).get().val()
-        if current and note.strip():
-            marker_data = {
-                "created_by": name,
-                "lat": current["lat"],
-                "lng": current["lng"],
-                "note": note,
-                "timestamp": int(time.time() * 1000),
-            }
-            db.child("markers").child(username).push(marker_data)
-            st.sidebar.success("Đã thêm điểm")
-        else:
-            st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
-
-with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
-    uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
-    note_photo = st.text_input("Ghi chú (tùy chọn)")
-    if st.button("📤 Gửi ảnh"):
-        if not st.session_state.sharing:
-            st.sidebar.warning("Bạn cần bật chia sẻ vị trí trước")
-        elif uploaded_file is None:
-            st.sidebar.warning("Vui lòng chọn ảnh")
-        else:
-            current = db.child("officers").child(username).get().val()
-            if not current:
-                st.sidebar.error("Không có vị trí hiện tại")
-            else:
-                imgbb_api_key = st.secrets["imgbb"]["api_key"]
-                image_url, error = upload_to_imgbb(uploaded_file, imgbb_api_key)
-                if error:
-                    st.sidebar.error(f"Lỗi upload: {error}")
-                else:
-                    incident_data = {
-                        "created_by": name,
-                        "lat": current["lat"],
-                        "lng": current["lng"],
-                        "note": note_photo,
-                        "image_url": image_url,
-                        "timestamp": int(time.time() * 1000)
-                    }
-                    db.child("incidents").push(incident_data)
-                    st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
+def find_nearest_officers(lat, lng, limit=3):
+    officers = db.child("officers").get().val()
+    if not officers:
+        return []
+    distances = []
+    for uid, data in officers.items():
+        if is_valid_coordinate(data.get("lat"), data.get("lng")):
+            d = haversine(lat, lng, data["lat"], data["lng"])
+            distances.append((uid, d))
+    distances.sort(key=lambda x: x[1])
+    return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 13. NHIỆM VỤ
-# ==============================
-st.sidebar.markdown("---")
-st.sidebar.subheader("📋 Nhiệm vụ")
-if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
-    alerts = db.child("alerts").get().val()
-    if alerts:
-        found = False
-        for key, alert in alerts.items():
-            assigned = alert.get("assigned", [])
-            if username in assigned:
-                db.child("alerts").child(key).update({
-                    "status": "accepted",
-                    "accepted_by": name
-                })
-                st.sidebar.success("Đã nhận nhiệm vụ")
-                found = True
-                break
-        if not found:
-            st.sidebar.info("Không có nhiệm vụ nào cho bạn")
-    else:
-        st.sidebar.info("Không có báo động nào")
-
-# ==============================
-# 14. QUẢN LÝ USER (ADMIN) - THÊM/XÓA TRONG GIAO DIỆN
-# ==============================
-if user_role == "admin":
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("👤 Quản lý tài khoản")
-    
-    # Form thêm user mới
-    with st.sidebar.expander("➕ Thêm user mới"):
-        new_username = st.text_input("Tên đăng nhập")
-        new_email = st.text_input("Email")
-        new_name = st.text_input("Tên hiển thị")
-        new_password = st.text_input("Mật khẩu", type="password")
-        new_role = st.selectbox("Vai trò", ["admin", "commander", "officer"])
-        new_color = st.color_picker("Màu sắc", "#0066cc")
-        
-        if st.button("Tạo tài khoản"):
-            if not new_username or not new_name or not new_password:
-                st.sidebar.error("Vui lòng nhập đầy đủ: tên đăng nhập, tên hiển thị và mật khẩu")
-            elif new_username in config["credentials"]["usernames"]:
-                st.sidebar.error("Tên đăng nhập đã tồn tại")
-            else:
-                hashed = Hasher([new_password]).generate()[0]
-                config["credentials"]["usernames"][new_username] = {
-                    "email": new_email,
-                    "name": new_name,
-                    "password": hashed,
-                    "role": new_role,
-                    "color": new_color
-                }
-                if save_credentials_to_firebase(config["credentials"]):
-                    st.sidebar.success(f"Đã thêm user {new_username}")
-                    st.rerun()
-                else:
-                    st.sidebar.error("Lỗi lưu dữ liệu")
-    
-    # Hiển thị danh sách user và cho phép xóa
-    with st.sidebar.expander("🗑️ Xóa user"):
-        users = list(config["credentials"]["usernames"].keys())
-        if users:
-            user_to_delete = st.selectbox("Chọn user để xóa", users)
-            if st.button("Xóa user"):
-                if user_to_delete == username:
-                    st.sidebar.error("Không thể xóa chính mình")
-                else:
-                    del config["credentials"]["usernames"][user_to_delete]
-                    if save_credentials_to_firebase(config["credentials"]):
-                        st.sidebar.success(f"Đã xóa user {user_to_delete}")
-                        st.rerun()
-                    else:
-                        st.sidebar.error("Lỗi lưu dữ liệu")
-        else:
-            st.sidebar.info("Không có user nào")
-
-# ==============================
-# 15. HÀM LOAD DỮ LIỆU
+# 12. HÀM LOAD DỮ LIỆU (lọc tọa độ)
 # ==============================
 @st.cache_data(ttl=5)
 def load_officers():
     try:
         result = db.child("officers").get().val()
-        return result if result else {}
+        if result:
+            filtered = {uid: data for uid, data in result.items()
+                        if is_valid_coordinate(data.get("lat"), data.get("lng"))}
+            return filtered
+        return {}
     except Exception as e:
         st.error(f"Lỗi Firebase: {e}")
         return {}
@@ -690,7 +580,7 @@ def load_all_markers():
             for uid, user_markers in all_markers.items():
                 if user_markers and isinstance(user_markers, dict):
                     for key, marker in user_markers.items():
-                        if isinstance(marker, dict) and marker.get("timestamp"):
+                        if isinstance(marker, dict) and marker.get("timestamp") and is_valid_coordinate(marker.get("lat"), marker.get("lng")):
                             markers_dict[key] = marker
         return markers_dict
     except Exception as e:
@@ -703,7 +593,7 @@ def load_incidents():
         incidents_dict = {}
         if incidents:
             for key, inc in incidents.items():
-                if isinstance(inc, dict) and inc.get("timestamp"):
+                if isinstance(inc, dict) and inc.get("timestamp") and is_valid_coordinate(inc.get("lat"), inc.get("lng")):
                     incidents_dict[key] = inc
         return incidents_dict
     except Exception as e:
@@ -711,32 +601,12 @@ def load_incidents():
         return {}
 
 # ==============================
-# 16. TỰ ĐỘNG REFRESH
+# 13. TỰ ĐỘNG REFRESH
 # ==============================
 st_autorefresh(interval=15000, key="auto_refresh")
 
 # ==============================
-# 17. CHECKBOX HIỂN THỊ TRACK
-# ==============================
-st.sidebar.markdown("---")
-st.sidebar.subheader("🗺️ Lịch sử di chuyển")
-
-if 'show_tracks' not in st.session_state:
-    st.session_state.show_tracks = {}
-
-officers = load_officers()
-if officers:
-    for uid, info in officers.items():
-        key = f"track_{uid}"
-        checked = st.sidebar.checkbox(
-            f"Track của {info['name']}",
-            value=st.session_state.show_tracks.get(uid, False),
-            key=key
-        )
-        st.session_state.show_tracks[uid] = checked
-
-# ==============================
-# 18. CHUẨN BỊ DỮ LIỆU CHO MAP
+# 14. CHUẨN BỊ DỮ LIỆU CHO MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -745,12 +615,24 @@ fcm_vapid_key = st.secrets.get("fcm", {}).get("vapid_key", "")
 stationary_officers = detect_stationary_officers()
 stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
+user_role_json = json.dumps(user_role)
+
+# Xóa dữ liệu cũ bị lỗi
+try:
+    officers_old = db.child("officers").get().val()
+    if officers_old:
+        for uid, data in officers_old.items():
+            if not is_valid_coordinate(data.get("lat"), data.get("lng")):
+                db.child("officers").child(uid).remove()
+                print(f"Đã xóa officer {uid} có tọa độ lỗi")
+except Exception as e:
+    print("Cleanup error:", e)
 
 # ==============================
-# 19. HTML BẢN ĐỒ REALTIME
+# 15. MAP HTML (đã lọc tọa độ)
 # ==============================
 map_html = f"""
-<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
+<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .dragging-cursor {{ cursor: grabbing !important; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 const firebaseConfig = {json.dumps(firebase_config)};
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
@@ -758,11 +640,19 @@ const messaging = getMessaging(app);
 
 const myUsername = "{username}";
 const myName = "{name}";
+const userRole = {user_role_json};
 const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
 
 console.log("👤 Username:", myUsername);
+console.log("👤 Role:", userRole);
+
+function isValidVNCoordinate(lat, lng) {{
+    return (typeof lat === 'number' && typeof lng === 'number' &&
+            lat !== 0 && lng !== 0 &&
+            lat >= 8 && lat <= 24 && lng >= 102 && lng <= 110);
+}}
 
 function haversine(lat1, lng1, lat2, lng2) {{
 const R = 6371e3;
@@ -804,13 +694,30 @@ let map;
 
 if (savedCenter && savedZoom) {{
 const center = JSON.parse(savedCenter);
-map = L.map('map').setView(center, parseInt(savedZoom));
+map = L.map('map', {{
+    preferCanvas: true,
+    zoomAnimation: false,
+    fadeAnimation: false,
+    markerZoomAnimation: false,
+    inertia: false
+}}).setView(center, parseInt(savedZoom));
 }} else {{
-map = L.map('map').setView([21.0285, 105.8542], 13);
+map = L.map('map', {{
+    preferCanvas: true,
+    zoomAnimation: false,
+    fadeAnimation: false,
+    markerZoomAnimation: false,
+    inertia: false
+}}).setView([21.0285, 105.8542], 13);
 }}
 
-L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-attribution: '© OpenStreetMap'
+L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20,
+    updateWhenZooming: false,
+    updateWhenIdle: true,
+    keepBuffer: 4
 }}).addTo(map);
 
 map.on('moveend', () => {{
@@ -825,6 +732,7 @@ const pointMarkers = {{}};
 const incidentMarkers = {{}};
 const trackPolylines = {{}};
 const trackListeners = {{}};
+const moveOrderLines = {{}};
 
 let zoomedToMe = sessionStorage.getItem('zoomedToMe') === 'true';
 
@@ -854,9 +762,11 @@ if (navigator.geolocation && !zoomedToMe) {{
 navigator.geolocation.getCurrentPosition(
 (position) => {{
 const {{ latitude: lat, longitude: lng }} = position.coords;
-map.setView([lat, lng], 16);
-zoomedToMe = true;
-sessionStorage.setItem('zoomedToMe', 'true');
+if (isValidVNCoordinate(lat, lng)) {{
+    map.setView([lat, lng], 16);
+    zoomedToMe = true;
+    sessionStorage.setItem('zoomedToMe', 'true');
+}}
 }},
 (error) => console.warn("GPS fallback error:", error),
 {{ enableHighAccuracy: true, timeout: 10000 }}
@@ -864,9 +774,12 @@ sessionStorage.setItem('zoomedToMe', 'true');
 }}
 
 stationaryOfficers.forEach(officer => {{
+if (isValidVNCoordinate(officer.lat, officer.lng)) {{
 L.circleMarker([officer.lat, officer.lng], {{
-radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2
+radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2,
+renderer: L.canvas()
 }}).addTo(map).bindTooltip(`⚠ ${{officer.name}} đứng yên >15 phút`);
+}}
 }});
 
 const officersRef = ref(db, 'officers');
@@ -875,17 +788,139 @@ function getOfficerColor(uid) {{
 return userColors[uid] || '#0066cc';
 }}
 
+function enableDragOrder(marker, officerId) {{
+if (userRole !== 'commander') return;
+if (officerId === myUsername) return;
+
+let startLatLng = null;
+let tempLine = null;
+let isDragging = false;
+
+const onMouseDown = (e) => {{
+L.DomEvent.stopPropagation(e);
+L.DomEvent.preventDefault(e);
+
+startLatLng = marker.getLatLng();
+isDragging = true;
+map.dragging.disable();
+document.body.classList.add('dragging-cursor');
+
+tempLine = L.polyline([startLatLng, startLatLng], {{
+color: '#ff4444', weight: 4, dashArray: '5, 10'
+}}).addTo(map);
+
+const onMouseMove = (moveEvent) => {{
+if (!isDragging || !tempLine) return;
+const point = map.mouseEventToLatLng(moveEvent);
+tempLine.setLatLngs([startLatLng, point]);
+}};
+
+const onMouseUp = (upEvent) => {{
+if (!isDragging) return;
+const endPoint = map.mouseEventToLatLng(upEvent);
+const dist = haversine(startLatLng.lat, startLatLng.lng, endPoint.lat, endPoint.lng);
+if (dist > 10) {{
+const orderData = {{
+officerId: officerId,
+fromLat: startLatLng.lat,
+fromLng: startLatLng.lng,
+toLat: endPoint.lat,
+toLng: endPoint.lng,
+commanderName: myName,
+commanderId: myUsername,
+timestamp: Date.now(),
+status: 'active'
+}};
+push(ref(db, 'move_orders'), orderData);
+}}
+if (tempLine) map.removeLayer(tempLine);
+tempLine = null;
+isDragging = false;
+map.dragging.enable();
+document.body.classList.remove('dragging-cursor');
+window.removeEventListener('mousemove', onMouseMove);
+window.removeEventListener('mouseup', onMouseUp);
+}};
+
+window.addEventListener('mousemove', onMouseMove);
+window.addEventListener('mouseup', onMouseUp);
+}};
+
+marker.on('mousedown', onMouseDown);
+
+marker.on('touchstart', (e) => {{
+L.DomEvent.stopPropagation(e);
+L.DomEvent.preventDefault(e);
+startLatLng = marker.getLatLng();
+isDragging = true;
+map.dragging.disable();
+document.body.classList.add('dragging-cursor');
+
+tempLine = L.polyline([startLatLng, startLatLng], {{
+color: '#ff4444', weight: 4, dashArray: '5, 10'
+}}).addTo(map);
+
+const onTouchMove = (moveEvent) => {{
+if (!isDragging || !tempLine) return;
+const touch = moveEvent.touches[0];
+const point = map.mouseEventToLatLng(touch);
+tempLine.setLatLngs([startLatLng, point]);
+}};
+
+const onTouchEnd = (endEvent) => {{
+if (!isDragging) return;
+const lastTouch = endEvent.changedTouches[0];
+const endPoint = map.mouseEventToLatLng(lastTouch);
+const dist = haversine(startLatLng.lat, startLatLng.lng, endPoint.lat, endPoint.lng);
+if (dist > 10) {{
+const orderData = {{
+officerId: officerId,
+fromLat: startLatLng.lat,
+fromLng: startLatLng.lng,
+toLat: endPoint.lat,
+toLng: endPoint.lng,
+commanderName: myName,
+commanderId: myUsername,
+timestamp: Date.now(),
+status: 'active'
+}};
+push(ref(db, 'move_orders'), orderData);
+}}
+if (tempLine) map.removeLayer(tempLine);
+tempLine = null;
+isDragging = false;
+map.dragging.enable();
+document.body.classList.remove('dragging-cursor');
+window.removeEventListener('touchmove', onTouchMove);
+window.removeEventListener('touchend', onTouchEnd);
+}};
+
+window.addEventListener('touchmove', onTouchMove);
+window.addEventListener('touchend', onTouchEnd);
+}});
+}}
+
 onChildAdded(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
+if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
+console.log("⚠️ Bỏ qua officer có tọa độ lỗi:", id, officer.lat, officer.lng);
+return;
+}}
 const color = getOfficerColor(id);
 const marker = L.circleMarker([officer.lat, officer.lng], {{
-radius: 8, color: color, fillColor: color, fillOpacity: 0.8, weight: 1
+    radius: 7,
+    color: color,
+    fillColor: color,
+    fillOpacity: 0.9,
+    weight: 1,
+    renderer: L.canvas()
 }}).addTo(map);
 marker.bindTooltip(officer.name, {{
 permanent: true, direction: 'top', offset: [0, -8], className: 'officer-label'
 }});
 officerMarkers[id] = marker;
+enableDragOrder(marker, id);
 
 if (id === myUsername && !zoomedToMe) {{
 map.setView([officer.lat, officer.lng], 16);
@@ -897,12 +932,33 @@ sessionStorage.setItem('zoomedToMe', 'true');
 onChildChanged(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
-if (officerMarkers[id]) {{
-officerMarkers[id].setLatLng([officer.lat, officer.lng]);
-officerMarkers[id].setTooltipContent(officer.name);
+if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
+console.log("⚠️ Bỏ qua cập nhật officer có tọa độ lỗi:", id, officer.lat, officer.lng);
+return;
+}}
+const marker = officerMarkers[id];
+if (!marker) return;
+
+const start = marker.getLatLng();
+const end = L.latLng(officer.lat, officer.lng);
+const steps = 5;
+let step = 0;
+
+function animate() {{
+    step++;
+    const lat = start.lat + (end.lat - start.lat) * (step / steps);
+    const lng = start.lng + (end.lng - start.lng) * (step / steps);
+    marker.setLatLng([lat, lng]);
+
+    if (step < steps) {{
+        requestAnimationFrame(animate);
+    }}
+}}
+animate();
+
+marker.setTooltipContent(officer.name);
 if (id === myUsername) {{
 map.setView([officer.lat, officer.lng], map.getZoom());
-}}
 }}
 }});
 
@@ -964,7 +1020,7 @@ return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{stat
 onChildAdded(alertsRef, (data) => {{
 const alert = data.val();
 const id = data.key;
-if (alert.timestamp && alert.timestamp > oneDayAgo) {{
+if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {{
 const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
 .addTo(map)
 .bindPopup(getAlertPopupContent(alert));
@@ -1007,11 +1063,14 @@ if (age > 24*60*60*1000) {{
 set(ref(db, `markers/${{userId}}/${{markerId}}`), null);
 return;
 }}
+if (isValidVNCoordinate(point.lat, point.lng)) {{
 const marker = L.circleMarker([point.lat, point.lng], {{
-radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1
+radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
+renderer: L.canvas()
 }}).addTo(map);
 marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
 pointMarkers[fullId] = marker;
+}}
 }});
 onChildRemoved(userMarkersRef, (markerSnapshot) => {{
 const markerId = markerSnapshot.key;
@@ -1032,10 +1091,12 @@ if (age > 24*60*60*1000) {{
 set(ref(db, 'incidents/' + id), null);
 return;
 }}
+if (isValidVNCoordinate(inc.lat, inc.lng)) {{
 const marker = L.marker([inc.lat, inc.lng], {{ icon: incidentIcon }})
 .addTo(map)
 .bindPopup(`<b>${{inc.created_by}}</b><br> ${{inc.note}}<br> <img src="${{inc.image_url}}" style="max-width:200px; max-height:200px;"><br> ${{new Date(inc.timestamp).toLocaleString()}}`);
 incidentMarkers[id] = marker;
+}}
 }});
 onChildRemoved(incidentsRef, (data) => {{
 const id = data.key;
@@ -1084,7 +1145,7 @@ map.on('touchcancel', () => clearTimeout(pressTimer));
 
 function loadUserTracks(userId, userName, show) {{
 const tracksRef = ref(db, 'tracks/' + userId + '/points');
-const tracksQuery = query(tracksRef, limitToLast(100));
+const tracksQuery = query(tracksRef, limitToLast(30));
 if (!show) {{
 if (trackPolylines[userId]) {{
 map.removeLayer(trackPolylines[userId]);
@@ -1098,13 +1159,23 @@ if (!trackPolylines[userId]) {{
 const hue = (userName.split('').reduce((a,b) => a + b.charCodeAt(0), 0) * 31) % 360;
 const color = `hsl(${{hue}}, 70%, 50%)`;
 trackPolylines[userId] = L.polyline([], {{
-color: color, weight: 3, opacity: 0.6, smoothFactor: 1.5
+    color: color,
+    weight: 3,
+    opacity: 0.7,
+    smoothFactor: 5,
+    noClip: true,
+    renderer: L.canvas()
 }}).addTo(map);
 }}
 onChildAdded(tracksQuery, (snapshot) => {{
 const point = snapshot.val();
-if (point && point.lat && point.lng) {{
+if (point && point.lat && point.lng && isValidVNCoordinate(point.lat, point.lng)) {{
 trackPolylines[userId].addLatLng([point.lat, point.lng]);
+if (trackPolylines[userId].getLatLngs().length > 30) {{
+    const latlngs = trackPolylines[userId].getLatLngs();
+    const smoothed = latlngs.filter((_, i) => i % 2 === 0);
+    trackPolylines[userId].setLatLngs(smoothed);
+}}
 }}
 }});
 }}
@@ -1116,11 +1187,67 @@ loadUserTracks(uid, officers[uid].name, showTracks[uid] || false);
 }});
 }});
 
+const moveOrdersRef = ref(db, 'move_orders');
+
+onChildAdded(moveOrdersRef, (snapshot) => {{
+const order = snapshot.val();
+const orderId = snapshot.key;
+if (!order || order.status !== 'active') return;
+if (!isValidVNCoordinate(order.toLat, order.toLng)) return;
+
+const latlngs = [[order.fromLat, order.fromLng], [order.toLat, order.toLng]];
+const polyline = L.polyline(latlngs, {{
+color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10',
+renderer: L.canvas()
+}}).addTo(map);
+if (polyline.arrowheads) {{
+polyline.arrowheads({{ size: '12px', frequency: 'all', color: '#ff8800' }});
+}}
+const officerName = officerMarkers[order.officerId]?.getTooltip()?.getContent() || order.officerId;
+polyline.bindPopup(`📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{officerName}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}`);
+moveOrderLines[orderId] = polyline;
+
+if (order.officerId === myUsername) {{
+L.popup()
+.setLatLng([order.toLat, order.toLng])
+.setContent(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}`)
+.openOn(map);
+}}
+}});
+
+onChildRemoved(moveOrdersRef, (snapshot) => {{
+const orderId = snapshot.key;
+if (moveOrderLines[orderId]) {{
+map.removeLayer(moveOrderLines[orderId]);
+delete moveOrderLines[orderId];
+}}
+}});
+
+function checkOrdersCompletion() {{
+get(moveOrdersRef).then((snapshot) => {{
+const orders = snapshot.val() || {{}};
+for (const [orderId, order] of Object.entries(orders)) {{
+if (order.status !== 'active') continue;
+const officer = officerMarkers[order.officerId];
+if (!officer) continue;
+const officerPos = officer.getLatLng();
+const dist = haversine(officerPos.lat, officerPos.lng, order.toLat, order.toLng);
+if (dist < 20) {{
+set(ref(db, 'move_orders/' + orderId), null);
+}}
+}}
+}}).catch(console.error);
+}}
+setInterval(checkOrdersCompletion, 5000);
+
 function zoomToAllOfficers() {{
 const markers = Object.values(officerMarkers);
 if (markers.length === 0) return;
 const group = L.featureGroup(markers);
-map.fitBounds(group.getBounds(), {{ padding: [50, 50] }});
+map.fitBounds(group.getBounds(), {{ 
+    padding: [50, 50],
+    animate: false
+}});
 }}
 
 onValue(officersRef, (snapshot) => {{
@@ -1131,8 +1258,9 @@ zoomToAllOfficers();
 }});
 
 </script> </head> <body> <div id="map"></div> </body> </html> """
+
 # ==============================
-# 20. TABS: BẢN ĐỒ VÀ CHAT
+# 16. TABS: BẢN ĐỒ VÀ CHAT
 # ==============================
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
@@ -1193,43 +1321,205 @@ with tab2:
             st.rerun()
 
 # ==============================
-# 21. DANH SÁCH CÁN BỘ ONLINE
+# 17. SIDEBAR – GOM TẤT CẢ VÀO MỘT KHỐI
 # ==============================
-st.sidebar.markdown("---")
-st.sidebar.subheader("👥 Cán bộ trực tuyến")
+with st.sidebar:
+    st.success(f"Xin chào {name}")
+    authenticator.logout("Đăng xuất")
 
-if officers:
-    for uid, info in officers.items():
-        label = "(bạn)" if uid == username else ""
-        st.sidebar.write(f"• {info['name']} {label}")
-else:
-    st.sidebar.write("Chưa có ai chia sẻ vị trí")
+    st.markdown("---")
+    st.subheader("🚨 Công cụ phối hợp")
 
-# ==============================
-# 22. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
-# ==============================
-all_markers = load_all_markers()
-with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
-    if all_markers:
-        valid_markers = {k: v for k, v in all_markers.items()
-                        if isinstance(v, dict) and v.get("timestamp")}
-        if valid_markers:
-            sorted_markers = sorted(valid_markers.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
-            for _, m in sorted_markers:
-                st.write(f"📍 {m.get('created_by', 'Unknown')}: {m.get('note', '')[:30]}...")
+    if st.button("🚨 Gửi báo động"):
+        user_data = db.child("officers").child(username).get().val()
+        if user_data and is_valid_coordinate(user_data.get("lat"), user_data.get("lng")):
+            lat = user_data["lat"]
+            lng = user_data["lng"]
+            nearest = find_nearest_officers(lat, lng)
+            request_data = {
+                "username": username,
+                "name": name,
+                "lat": lat,
+                "lng": lng,
+                "assigned": nearest,
+                "status": "pending",
+                "timestamp": int(time.time() * 1000)
+            }
+            db.child("alert_requests").push(request_data)
+
+            server_key = st.secrets.get("fcm", {}).get("server_key", "")
+            if server_key:
+                tokens = db.child("fcm_tokens").get().val() or {}
+                for uid, token in tokens.items():
+                    if uid != username:
+                        send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
+
+            st.success("Đã gửi yêu cầu báo động")
         else:
-            st.write("Chưa có điểm đánh dấu hợp lệ")
-    else:
-        st.write("Chưa có điểm đánh dấu")
+            st.error("Bạn chưa chia sẻ vị trí hợp lệ")
 
-# ==============================
-# 23. INCIDENTS GẦN ĐÂY
-# ==============================
-incidents = load_incidents()
-with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
-    if incidents:
-        sorted_inc = sorted(incidents.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
-        for key, inc in sorted_inc:
-            st.write(f"📷 {inc['created_by']}: {inc.get('note', '')[:30]}...")
+    with st.expander("📍 Đánh dấu điểm"):
+        note = st.text_area("Ghi chú")
+        if st.button("Thêm điểm tại vị trí hiện tại"):
+            current = db.child("officers").child(username).get().val()
+            if current and is_valid_coordinate(current.get("lat"), current.get("lng")) and note.strip():
+                marker_data = {
+                    "created_by": name,
+                    "lat": current["lat"],
+                    "lng": current["lng"],
+                    "note": note,
+                    "timestamp": int(time.time() * 1000),
+                }
+                db.child("markers").child(username).push(marker_data)
+                st.success("Đã thêm điểm")
+            else:
+                st.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
+
+    with st.expander("📸 Chụp ảnh hiện trường"):
+        uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
+        note_photo = st.text_input("Ghi chú (tùy chọn)")
+        if st.button("📤 Gửi ảnh"):
+            if not st.session_state.sharing:
+                st.warning("Bạn cần bật chia sẻ vị trí trước")
+            elif uploaded_file is None:
+                st.warning("Vui lòng chọn ảnh")
+            else:
+                current = db.child("officers").child(username).get().val()
+                if current and is_valid_coordinate(current.get("lat"), current.get("lng")):
+                    imgbb_api_key = st.secrets["imgbb"]["api_key"]
+                    image_url, error = upload_to_imgbb(uploaded_file, imgbb_api_key)
+                    if error:
+                        st.error(f"Lỗi upload: {error}")
+                    else:
+                        incident_data = {
+                            "created_by": name,
+                            "lat": current["lat"],
+                            "lng": current["lng"],
+                            "note": note_photo,
+                            "image_url": image_url,
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        db.child("incidents").push(incident_data)
+                        st.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
+                else:
+                    st.error("Không có vị trí hợp lệ")
+
+    st.markdown("---")
+    st.subheader("📋 Nhiệm vụ")
+    if st.button("✅ Nhận nhiệm vụ gần nhất"):
+        alerts = db.child("alerts").get().val()
+        if alerts:
+            found = False
+            for key, alert in alerts.items():
+                assigned = alert.get("assigned", [])
+                if username in assigned:
+                    db.child("alerts").child(key).update({
+                        "status": "accepted",
+                        "accepted_by": name
+                    })
+                    st.success("Đã nhận nhiệm vụ")
+                    found = True
+                    break
+            if not found:
+                st.info("Không có nhiệm vụ nào cho bạn")
+        else:
+            st.info("Không có báo động nào")
+
+    # Quản lý tài khoản (chỉ admin)
+    if user_role == "admin":
+        st.markdown("---")
+        st.subheader("👤 Quản lý tài khoản")
+        
+        with st.expander("➕ Thêm user mới"):
+            new_username = st.text_input("Tên đăng nhập")
+            new_email = st.text_input("Email")
+            new_name = st.text_input("Tên hiển thị")
+            new_password = st.text_input("Mật khẩu", type="password")
+            new_role = st.selectbox("Vai trò", ["admin", "commander", "officer"])
+            new_color = st.color_picker("Màu sắc", "#0066cc")
+            
+            if st.button("Tạo tài khoản"):
+                if not new_username or not new_name or not new_password:
+                    st.error("Vui lòng nhập đầy đủ: tên đăng nhập, tên hiển thị và mật khẩu")
+                elif new_username in config["credentials"]["usernames"]:
+                    st.error("Tên đăng nhập đã tồn tại")
+                else:
+                    hashed = Hasher([new_password]).generate()[0]
+                    config["credentials"]["usernames"][new_username] = {
+                        "email": new_email,
+                        "name": new_name,
+                        "password": hashed,
+                        "role": new_role,
+                        "color": new_color
+                    }
+                    if save_credentials_to_firebase(config["credentials"]):
+                        st.success(f"Đã thêm user {new_username}")
+                        st.rerun()
+                    else:
+                        st.error("Lỗi lưu dữ liệu")
+        
+        with st.expander("🗑️ Xóa user"):
+            users = list(config["credentials"]["usernames"].keys())
+            if users:
+                user_to_delete = st.selectbox("Chọn user để xóa", users)
+                if st.button("Xóa user"):
+                    if user_to_delete == username:
+                        st.error("Không thể xóa chính mình")
+                    else:
+                        del config["credentials"]["usernames"][user_to_delete]
+                        if save_credentials_to_firebase(config["credentials"]):
+                            st.success(f"Đã xóa user {user_to_delete}")
+                            st.rerun()
+                        else:
+                            st.error("Lỗi lưu dữ liệu")
+            else:
+                st.info("Không có user nào")
+
+    # Các phần hiển thị khác
+    st.markdown("---")
+    st.subheader("🗺️ Lịch sử di chuyển")
+    if 'show_tracks' not in st.session_state:
+        st.session_state.show_tracks = {}
+
+    officers = load_officers()
+    if officers:
+        for uid, info in officers.items():
+            key = f"track_{uid}"
+            checked = st.checkbox(
+                f"Track của {info['name']}",
+                value=st.session_state.show_tracks.get(uid, False),
+                key=key
+            )
+            st.session_state.show_tracks[uid] = checked
+
+    st.markdown("---")
+    st.subheader("👥 Cán bộ trực tuyến")
+    if officers:
+        for uid, info in officers.items():
+            label = "(bạn)" if uid == username else ""
+            st.write(f"• {info['name']} {label}")
     else:
-        st.write("Chưa có ảnh hiện trường")
+        st.write("Chưa có ai chia sẻ vị trí hợp lệ")
+
+    all_markers = load_all_markers()
+    with st.expander("📌 Điểm đánh dấu gần đây"):
+        if all_markers:
+            valid_markers = {k: v for k, v in all_markers.items()
+                            if isinstance(v, dict) and v.get("timestamp")}
+            if valid_markers:
+                sorted_markers = sorted(valid_markers.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
+                for _, m in sorted_markers:
+                    st.write(f"📍 {m.get('created_by', 'Unknown')}: {m.get('note', '')[:30]}...")
+            else:
+                st.write("Chưa có điểm đánh dấu hợp lệ")
+        else:
+            st.write("Chưa có điểm đánh dấu")
+
+    incidents = load_incidents()
+    with st.expander("📸 Ảnh hiện trường gần đây"):
+        if incidents:
+            sorted_inc = sorted(incidents.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
+            for key, inc in sorted_inc:
+                st.write(f"📷 {inc['created_by']}: {inc.get('note', '')[:30]}...")
+        else:
+            st.write("Chưa có ảnh hiện trường")
