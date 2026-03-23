@@ -32,6 +32,12 @@ def haversine(lat1, lng1, lat2, lng2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
+def is_valid_coordinate(lat, lng):
+    """Kiểm tra tọa độ hợp lệ trong Việt Nam"""
+    return (isinstance(lat, (int, float)) and isinstance(lng, (int, float)) and
+            lat != 0 and lng != 0 and
+            8 <= lat <= 24 and 102 <= lng <= 110)
+
 # ==============================
 # 1. HÀM UPLOAD ẢNH LÊN IMGBB
 # ==============================
@@ -202,7 +208,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. HÀM TÌM CÁN BỘ GẦN NHẤT
+# 7. HÀM TÌM CÁN BỘ GẦN NHẤT (đã lọc tọa độ)
 # ==============================
 def find_nearest_officers(lat, lng, limit=3):
     officers = db.child("officers").get().val()
@@ -210,14 +216,14 @@ def find_nearest_officers(lat, lng, limit=3):
         return []
     distances = []
     for uid, data in officers.items():
-        if data.get("lat") and data.get("lng"):
+        if is_valid_coordinate(data.get("lat"), data.get("lng")):
             d = haversine(lat, lng, data["lat"], data["lng"])
             distances.append((uid, d))
     distances.sort(key=lambda x: x[1])
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. JAVASCRIPT LẤY GPS (ĐÃ TỐI ƯU: chỉ gửi khi di chuyển >3m)
+# 8. JAVASCRIPT LẤY GPS (SỬA: KHÔNG SET lat=0,lng=0, THÊM FALLBACK VÀ LỌC VN)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -239,12 +245,11 @@ if st.session_state.sharing:
 
     const username = "{username}";
     const officerName = "{name}";
-
     const officerRef = ref(database, 'officers/' + username);
+
+    // Không set lat/lng = 0 ban đầu nữa, chỉ set name và lastUpdate
     set(officerRef, {{
         name: officerName,
-        lat: 0,
-        lng: 0,
         lastUpdate: serverTimestamp()
     }});
 
@@ -256,6 +261,11 @@ if st.session_state.sharing:
     let trackBuffer = [];
     let lastSendTime = 0;
     const SEND_INTERVAL = 5000;
+
+    // Hàm kiểm tra tọa độ có nằm trong Việt Nam không
+    function isValidVNCoordinate(lat, lng) {{
+        return (lat >= 8 && lat <= 24 && lng >= 102 && lng <= 110);
+    }}
 
     function distance(lat1, lon1, lat2, lon2) {{
         const R = 6371000;
@@ -300,44 +310,81 @@ if st.session_state.sharing:
         return {{lat,lng}};
     }}
 
+    // Fallback IP location (lấy tọa độ mặc định Hà Nội nếu không có IP)
+    let fallbackLat = null;
+    let fallbackLng = null;
+    fetch("https://ipapi.co/json/")
+        .then(res => res.json())
+        .then(data => {{
+            if (data.latitude && data.longitude && isValidVNCoordinate(data.latitude, data.longitude)) {{
+                fallbackLat = data.latitude;
+                fallbackLng = data.longitude;
+                console.log("🌐 IP location VN:", fallbackLat, fallbackLng);
+            }} else {{
+                // Mặc định Hà Nội
+                fallbackLat = 21.0285;
+                fallbackLng = 105.8542;
+                console.log("🌐 Dùng fallback Hà Nội");
+            }}
+        }})
+        .catch(err => {{
+            fallbackLat = 21.0285;
+            fallbackLng = 105.8542;
+            console.log("🌐 Lỗi IP, dùng fallback Hà Nội");
+        }});
+
     if (navigator.geolocation) {{
         navigator.geolocation.watchPosition(function(position){{
-            let accuracy=position.coords.accuracy;
-            if(accuracy>25) return;
+            let accuracy = position.coords.accuracy;
+            if(accuracy > 25) return;
 
-            let lat=position.coords.latitude;
-            let lng=position.coords.longitude;
+            let lat = position.coords.latitude;
+            let lng = position.coords.longitude;
 
-            // Nếu chưa có vị trí cũ thì gửi luôn
+            // Nếu tọa độ không hợp lệ (ngoài VN), thử dùng fallback
+            if (!isValidVNCoordinate(lat, lng)) {{
+                console.log("❌ GPS ngoài VN:", lat, lng);
+                if (fallbackLat && fallbackLng) {{
+                    lat = fallbackLat;
+                    lng = fallbackLng;
+                    console.log("✅ Dùng fallback:", lat, lng);
+                }} else {{
+                    return; // bỏ qua
+                }}
+            }}
+
+            // Chỉ gửi khi di chuyển >3m
             let shouldSend = true;
             if(lastLat !== null){{
                 const dist = distance(lastLat, lastLng, lat, lng);
-                if(dist < 3) shouldSend = false; // chỉ gửi khi di chuyển >3m
+                if(dist < 3) shouldSend = false;
             }}
             if(!shouldSend) return;
 
+            // smoothing
             if(lastLat!==null){{
-                lat=lastLat*0.7 + lat*0.3;
-                lng=lastLng*0.7 + lng*0.3;
+                lat = lastLat*0.7 + lat*0.3;
+                lng = lastLng*0.7 + lng*0.3;
             }}
 
             if(lastPoint){{
-                const bearing=getBearing(lastPoint.lat, lastPoint.lng, lat, lng);
+                const bearing = getBearing(lastPoint.lat, lastPoint.lng, lat, lng);
                 if(lastBearing!==null){{
-                    const diff=Math.abs(bearing-lastBearing);
+                    const diff = Math.abs(bearing - lastBearing);
                     if(diff>60 && diff<300){{
-                        lat=lastPoint.lat*0.85 + lat*0.15;
-                        lng=lastPoint.lng*0.85 + lng*0.15;
+                        lat = lastPoint.lat*0.85 + lat*0.15;
+                        lng = lastPoint.lng*0.85 + lng*0.15;
                     }}
                 }}
-                lastBearing=bearing;
+                lastBearing = bearing;
             }}
 
-            const stabilized=stabilizeLine(lat,lng);
-            lat=stabilized.lat;
-            lng=stabilized.lng;
-            const now=Date.now();
+            const stabilized = stabilizeLine(lat,lng);
+            lat = stabilized.lat;
+            lng = stabilized.lng;
+            const now = Date.now();
 
+            // Ghi lên Firebase
             set(officerRef, {{
                 name: officerName,
                 lat: lat,
@@ -350,6 +397,7 @@ if st.session_state.sharing:
                 offlineAt: serverTimestamp()
             }});
 
+            // Lưu track (throttle)
             if (now - lastSendTime < SEND_INTERVAL) return;
             lastSendTime = now;
 
@@ -358,8 +406,8 @@ if st.session_state.sharing:
             if(lastPoint){{
                 const dist = distance(lastPoint.lat, lastPoint.lng, lat, lng);
                 if(dist>5 && dist<60){{
-                    const midLat=(lastPoint.lat+lat)/2;
-                    const midLng=(lastPoint.lng+lng)/2;
+                    const midLat = (lastPoint.lat+lat)/2;
+                    const midLng = (lastPoint.lng+lng)/2;
                     push(ref(database, 'tracks/'+username+'/points'), {{
                         lat: midLat,
                         lng: midLng,
@@ -384,6 +432,16 @@ if st.session_state.sharing:
 
         }}, function(error){{
             console.log("GPS error:", error);
+            // Nếu GPS lỗi, dùng fallback
+            if (fallbackLat && fallbackLng) {{
+                set(officerRef, {{
+                    name: officerName,
+                    lat: fallbackLat,
+                    lng: fallbackLng,
+                    accuracy: 0,
+                    lastUpdate: serverTimestamp()
+                }});
+            }}
         }}, {{
             enableHighAccuracy: true,
             maximumAge: 5000,
@@ -489,7 +547,7 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 11. PHÂN TÍCH CÁN BỘ ĐỨNG YÊN
+# 11. PHÂN TÍCH CÁN BỘ ĐỨNG YÊN (lọc tọa độ)
 # ==============================
 def detect_stationary_officers():
     try:
@@ -500,15 +558,16 @@ def detect_stationary_officers():
         threshold = 15 * 60 * 1000
         stationary = []
         for uid, data in officers.items():
-            last = data.get("lastUpdate")
-            if last and now - last > threshold:
-                stationary.append({
-                    "uid": uid,
-                    "name": data.get("name"),
-                    "lat": data.get("lat"),
-                    "lng": data.get("lng"),
-                    "lastUpdate": last
-                })
+            if is_valid_coordinate(data.get("lat"), data.get("lng")):
+                last = data.get("lastUpdate")
+                if last and now - last > threshold:
+                    stationary.append({
+                        "uid": uid,
+                        "name": data.get("name"),
+                        "lat": data["lat"],
+                        "lng": data["lng"],
+                        "lastUpdate": last
+                    })
         return stationary
     except Exception as e:
         print("Stationary detection error:", e)
@@ -522,7 +581,7 @@ st.sidebar.subheader("🚨 Công cụ phối hợp")
 
 if st.sidebar.button("🚨 Gửi báo động"):
     user_data = db.child("officers").child(username).get().val()
-    if user_data:
+    if user_data and is_valid_coordinate(user_data.get("lat"), user_data.get("lng")):
         lat = user_data["lat"]
         lng = user_data["lng"]
         nearest = find_nearest_officers(lat, lng)
@@ -546,13 +605,13 @@ if st.sidebar.button("🚨 Gửi báo động"):
 
         st.sidebar.success("Đã gửi yêu cầu báo động")
     else:
-        st.sidebar.error("Bạn chưa chia sẻ vị trí")
+        st.sidebar.error("Bạn chưa chia sẻ vị trí hợp lệ")
 
 with st.sidebar.expander("📍 Đánh dấu điểm"):
     note = st.text_area("Ghi chú")
     if st.button("Thêm điểm tại vị trí hiện tại"):
         current = db.child("officers").child(username).get().val()
-        if current and note.strip():
+        if current and is_valid_coordinate(current.get("lat"), current.get("lng")) and note.strip():
             marker_data = {
                 "created_by": name,
                 "lat": current["lat"],
@@ -563,7 +622,7 @@ with st.sidebar.expander("📍 Đánh dấu điểm"):
             db.child("markers").child(username).push(marker_data)
             st.sidebar.success("Đã thêm điểm")
         else:
-            st.sidebar.warning("Chưa chia sẻ vị trí hoặc ghi chú trống")
+            st.sidebar.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
 
 with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
     uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
@@ -575,9 +634,7 @@ with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
             st.sidebar.warning("Vui lòng chọn ảnh")
         else:
             current = db.child("officers").child(username).get().val()
-            if not current:
-                st.sidebar.error("Không có vị trí hiện tại")
-            else:
+            if current and is_valid_coordinate(current.get("lat"), current.get("lng")):
                 imgbb_api_key = st.secrets["imgbb"]["api_key"]
                 image_url, error = upload_to_imgbb(uploaded_file, imgbb_api_key)
                 if error:
@@ -593,6 +650,8 @@ with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
                     }
                     db.child("incidents").push(incident_data)
                     st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
+            else:
+                st.sidebar.error("Không có vị trí hợp lệ")
 
 # ==============================
 # 13. NHIỆM VỤ
@@ -677,7 +736,12 @@ if user_role == "admin":
 def load_officers():
     try:
         result = db.child("officers").get().val()
-        return result if result else {}
+        # Lọc bỏ những officer có tọa độ không hợp lệ
+        if result:
+            filtered = {uid: data for uid, data in result.items()
+                        if is_valid_coordinate(data.get("lat"), data.get("lng"))}
+            return filtered
+        return {}
     except Exception as e:
         st.error(f"Lỗi Firebase: {e}")
         return {}
@@ -690,7 +754,7 @@ def load_all_markers():
             for uid, user_markers in all_markers.items():
                 if user_markers and isinstance(user_markers, dict):
                     for key, marker in user_markers.items():
-                        if isinstance(marker, dict) and marker.get("timestamp"):
+                        if isinstance(marker, dict) and marker.get("timestamp") and is_valid_coordinate(marker.get("lat"), marker.get("lng")):
                             markers_dict[key] = marker
         return markers_dict
     except Exception as e:
@@ -703,7 +767,7 @@ def load_incidents():
         incidents_dict = {}
         if incidents:
             for key, inc in incidents.items():
-                if isinstance(inc, dict) and inc.get("timestamp"):
+                if isinstance(inc, dict) and inc.get("timestamp") and is_valid_coordinate(inc.get("lat"), inc.get("lng")):
                     incidents_dict[key] = inc
         return incidents_dict
     except Exception as e:
@@ -747,8 +811,19 @@ stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
 user_role_json = json.dumps(user_role)
 
+# Xóa dữ liệu cũ bị lỗi
+try:
+    officers_old = db.child("officers").get().val()
+    if officers_old:
+        for uid, data in officers_old.items():
+            if not is_valid_coordinate(data.get("lat"), data.get("lng")):
+                db.child("officers").child(uid).remove()
+                print(f"Đã xóa officer {uid} có tọa độ lỗi")
+except Exception as e:
+    print("Cleanup error:", e)
+
 # ==============================
-# 19. HTML BẢN ĐỒ REALTIME (TỐI ƯU HIỆU NĂNG CAO)
+# 19. HTML BẢN ĐỒ REALTIME (ĐÃ THÊM LỌC TỌA ĐỘ)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .dragging-cursor {{ cursor: grabbing !important; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
@@ -766,6 +841,13 @@ const userColors = {user_colors_json};
 
 console.log("👤 Username:", myUsername);
 console.log("👤 Role:", userRole);
+
+// Hàm kiểm tra tọa độ hợp lệ trong Việt Nam
+function isValidVNCoordinate(lat, lng) {{
+    return (typeof lat === 'number' && typeof lng === 'number' &&
+            lat !== 0 && lng !== 0 &&
+            lat >= 8 && lat <= 24 && lng >= 102 && lng <= 110);
+}}
 
 function haversine(lat1, lng1, lat2, lng2) {{
 const R = 6371e3;
@@ -824,7 +906,6 @@ map = L.map('map', {{
 }}).setView([21.0285, 105.8542], 13);
 }}
 
-// Tile đẹp, mượt, tối ưu
 L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
     attribution: '&copy; OpenStreetMap &copy; CARTO',
     subdomains: 'abcd',
@@ -876,9 +957,13 @@ if (navigator.geolocation && !zoomedToMe) {{
 navigator.geolocation.getCurrentPosition(
 (position) => {{
 const {{ latitude: lat, longitude: lng }} = position.coords;
-map.setView([lat, lng], 16);
-zoomedToMe = true;
-sessionStorage.setItem('zoomedToMe', 'true');
+if (isValidVNCoordinate(lat, lng)) {{
+    map.setView([lat, lng], 16);
+    zoomedToMe = true;
+    sessionStorage.setItem('zoomedToMe', 'true');
+}} else {{
+    console.log("GPS ngoài VN, giữ nguyên map");
+}}
 }},
 (error) => console.warn("GPS fallback error:", error),
 {{ enableHighAccuracy: true, timeout: 10000 }}
@@ -886,10 +971,12 @@ sessionStorage.setItem('zoomedToMe', 'true');
 }}
 
 stationaryOfficers.forEach(officer => {{
+if (isValidVNCoordinate(officer.lat, officer.lng)) {{
 L.circleMarker([officer.lat, officer.lng], {{
 radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2,
 renderer: L.canvas()
 }}).addTo(map).bindTooltip(`⚠ ${{officer.name}} đứng yên >15 phút`);
+}}
 }});
 
 const officersRef = ref(db, 'officers');
@@ -1010,10 +1097,14 @@ window.addEventListener('touchend', onTouchEnd);
 }});
 }}
 
-// Thêm marker mới
+// Thêm marker mới (kiểm tra tọa độ hợp lệ)
 onChildAdded(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
+if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
+console.log("⚠️ Bỏ qua officer có tọa độ lỗi:", id, officer.lat, officer.lng);
+return;
+}}
 const color = getOfficerColor(id);
 const marker = L.circleMarker([officer.lat, officer.lng], {{
     radius: 7,
@@ -1040,6 +1131,10 @@ sessionStorage.setItem('zoomedToMe', 'true');
 onChildChanged(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
+if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
+console.log("⚠️ Bỏ qua cập nhật officer có tọa độ lỗi:", id, officer.lat, officer.lng);
+return;
+}}
 const marker = officerMarkers[id];
 if (!marker) return;
 
@@ -1124,7 +1219,7 @@ return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{stat
 onChildAdded(alertsRef, (data) => {{
 const alert = data.val();
 const id = data.key;
-if (alert.timestamp && alert.timestamp > oneDayAgo) {{
+if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {{
 const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
 .addTo(map)
 .bindPopup(getAlertPopupContent(alert));
@@ -1167,12 +1262,14 @@ if (age > 24*60*60*1000) {{
 set(ref(db, `markers/${{userId}}/${{markerId}}`), null);
 return;
 }}
+if (isValidVNCoordinate(point.lat, point.lng)) {{
 const marker = L.circleMarker([point.lat, point.lng], {{
 radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
 renderer: L.canvas()
 }}).addTo(map);
 marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
 pointMarkers[fullId] = marker;
+}}
 }});
 onChildRemoved(userMarkersRef, (markerSnapshot) => {{
 const markerId = markerSnapshot.key;
@@ -1193,10 +1290,12 @@ if (age > 24*60*60*1000) {{
 set(ref(db, 'incidents/' + id), null);
 return;
 }}
+if (isValidVNCoordinate(inc.lat, inc.lng)) {{
 const marker = L.marker([inc.lat, inc.lng], {{ icon: incidentIcon }})
 .addTo(map)
 .bindPopup(`<b>${{inc.created_by}}</b><br> ${{inc.note}}<br> <img src="${{inc.image_url}}" style="max-width:200px; max-height:200px;"><br> ${{new Date(inc.timestamp).toLocaleString()}}`);
 incidentMarkers[id] = marker;
+}}
 }});
 onChildRemoved(incidentsRef, (data) => {{
 const id = data.key;
@@ -1243,7 +1342,6 @@ push(ref(db, 'markers/{username}'), newPoint);
 map.on('touchend', () => clearTimeout(pressTimer));
 map.on('touchcancel', () => clearTimeout(pressTimer));
 
-// Hàm tải track với limit 30 điểm và tối ưu polyline
 function loadUserTracks(userId, userName, show) {{
 const tracksRef = ref(db, 'tracks/' + userId + '/points');
 const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1270,9 +1368,8 @@ trackPolylines[userId] = L.polyline([], {{
 }}
 onChildAdded(tracksQuery, (snapshot) => {{
 const point = snapshot.val();
-if (point && point.lat && point.lng) {{
+if (point && point.lat && point.lng && isValidVNCoordinate(point.lat, point.lng)) {{
 trackPolylines[userId].addLatLng([point.lat, point.lng]);
-// Làm mượt đường: giảm số điểm (tùy chọn)
 if (trackPolylines[userId].getLatLngs().length > 30) {{
     const latlngs = trackPolylines[userId].getLatLngs();
     const smoothed = latlngs.filter((_, i) => i % 2 === 0);
@@ -1295,6 +1392,7 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
 const order = snapshot.val();
 const orderId = snapshot.key;
 if (!order || order.status !== 'active') return;
+if (!isValidVNCoordinate(order.toLat, order.toLng)) return;
 
 const latlngs = [[order.fromLat, order.fromLng], [order.toLat, order.toLng]];
 const polyline = L.polyline(latlngs, {{
@@ -1432,7 +1530,7 @@ if officers:
         label = "(bạn)" if uid == username else ""
         st.sidebar.write(f"• {info['name']} {label}")
 else:
-    st.sidebar.write("Chưa có ai chia sẻ vị trí")
+    st.sidebar.write("Chưa có ai chia sẻ vị trí hợp lệ")
 
 # ==============================
 # 22. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
