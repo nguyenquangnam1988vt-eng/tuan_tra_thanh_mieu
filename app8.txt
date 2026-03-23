@@ -217,7 +217,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. JAVASCRIPT LẤY GPS
+# 8. JAVASCRIPT LẤY GPS (ĐÃ TỐI ƯU: chỉ gửi khi di chuyển >3m)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -307,6 +307,14 @@ if st.session_state.sharing:
 
             let lat=position.coords.latitude;
             let lng=position.coords.longitude;
+
+            // Nếu chưa có vị trí cũ thì gửi luôn
+            let shouldSend = true;
+            if(lastLat !== null){{
+                const dist = distance(lastLat, lastLng, lat, lng);
+                if(dist < 3) shouldSend = false; // chỉ gửi khi di chuyển >3m
+            }}
+            if(!shouldSend) return;
 
             if(lastLat!==null){{
                 lat=lastLat*0.7 + lat*0.3;
@@ -740,10 +748,10 @@ user_colors_json = json.dumps(user_colors)
 user_role_json = json.dumps(user_role)
 
 # ==============================
-# 19. HTML BẢN ĐỒ REALTIME (CÓ KÉO THẢ RA LỆNH)
+# 19. HTML BẢN ĐỒ REALTIME (TỐI ƯU HIỆU NĂNG CAO)
 # ==============================
 map_html = f"""
-<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .dragging-cursor {{ cursor: grabbing !important; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
+<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .dragging-cursor {{ cursor: grabbing !important; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 const firebaseConfig = {json.dumps(firebase_config)};
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
@@ -799,13 +807,31 @@ let map;
 
 if (savedCenter && savedZoom) {{
 const center = JSON.parse(savedCenter);
-map = L.map('map').setView(center, parseInt(savedZoom));
+map = L.map('map', {{
+    preferCanvas: true,
+    zoomAnimation: false,
+    fadeAnimation: false,
+    markerZoomAnimation: false,
+    inertia: false
+}}).setView(center, parseInt(savedZoom));
 }} else {{
-map = L.map('map').setView([21.0285, 105.8542], 13);
+map = L.map('map', {{
+    preferCanvas: true,
+    zoomAnimation: false,
+    fadeAnimation: false,
+    markerZoomAnimation: false,
+    inertia: false
+}}).setView([21.0285, 105.8542], 13);
 }}
 
-L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-attribution: '© OpenStreetMap'
+// Tile đẹp, mượt, tối ưu
+L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20,
+    updateWhenZooming: false,
+    updateWhenIdle: true,
+    keepBuffer: 4
 }}).addTo(map);
 
 map.on('moveend', () => {{
@@ -861,7 +887,8 @@ sessionStorage.setItem('zoomedToMe', 'true');
 
 stationaryOfficers.forEach(officer => {{
 L.circleMarker([officer.lat, officer.lng], {{
-radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2
+radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2,
+renderer: L.canvas()
 }}).addTo(map).bindTooltip(`⚠ ${{officer.name}} đứng yên >15 phút`);
 }});
 
@@ -983,12 +1010,18 @@ window.addEventListener('touchend', onTouchEnd);
 }});
 }}
 
+// Thêm marker mới
 onChildAdded(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
 const color = getOfficerColor(id);
 const marker = L.circleMarker([officer.lat, officer.lng], {{
-radius: 8, color: color, fillColor: color, fillOpacity: 0.8, weight: 1
+    radius: 7,
+    color: color,
+    fillColor: color,
+    fillOpacity: 0.9,
+    weight: 1,
+    renderer: L.canvas()
 }}).addTo(map);
 marker.bindTooltip(officer.name, {{
 permanent: true, direction: 'top', offset: [0, -8], className: 'officer-label'
@@ -1003,15 +1036,33 @@ sessionStorage.setItem('zoomedToMe', 'true');
 }}
 }});
 
+// Cập nhật marker mượt với animation lerp
 onChildChanged(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
-if (officerMarkers[id]) {{
-officerMarkers[id].setLatLng([officer.lat, officer.lng]);
-officerMarkers[id].setTooltipContent(officer.name);
+const marker = officerMarkers[id];
+if (!marker) return;
+
+const start = marker.getLatLng();
+const end = L.latLng(officer.lat, officer.lng);
+const steps = 5;
+let step = 0;
+
+function animate() {{
+    step++;
+    const lat = start.lat + (end.lat - start.lat) * (step / steps);
+    const lng = start.lng + (end.lng - start.lng) * (step / steps);
+    marker.setLatLng([lat, lng]);
+
+    if (step < steps) {{
+        requestAnimationFrame(animate);
+    }}
+}}
+animate();
+
+marker.setTooltipContent(officer.name);
 if (id === myUsername) {{
 map.setView([officer.lat, officer.lng], map.getZoom());
-}}
 }}
 }});
 
@@ -1117,7 +1168,8 @@ set(ref(db, `markers/${{userId}}/${{markerId}}`), null);
 return;
 }}
 const marker = L.circleMarker([point.lat, point.lng], {{
-radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1
+radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
+renderer: L.canvas()
 }}).addTo(map);
 marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
 pointMarkers[fullId] = marker;
@@ -1191,9 +1243,10 @@ push(ref(db, 'markers/{username}'), newPoint);
 map.on('touchend', () => clearTimeout(pressTimer));
 map.on('touchcancel', () => clearTimeout(pressTimer));
 
+// Hàm tải track với limit 30 điểm và tối ưu polyline
 function loadUserTracks(userId, userName, show) {{
 const tracksRef = ref(db, 'tracks/' + userId + '/points');
-const tracksQuery = query(tracksRef, limitToLast(100));
+const tracksQuery = query(tracksRef, limitToLast(30));
 if (!show) {{
 if (trackPolylines[userId]) {{
 map.removeLayer(trackPolylines[userId]);
@@ -1207,13 +1260,24 @@ if (!trackPolylines[userId]) {{
 const hue = (userName.split('').reduce((a,b) => a + b.charCodeAt(0), 0) * 31) % 360;
 const color = `hsl(${{hue}}, 70%, 50%)`;
 trackPolylines[userId] = L.polyline([], {{
-color: color, weight: 3, opacity: 0.6, smoothFactor: 1.5
+    color: color,
+    weight: 3,
+    opacity: 0.7,
+    smoothFactor: 5,
+    noClip: true,
+    renderer: L.canvas()
 }}).addTo(map);
 }}
 onChildAdded(tracksQuery, (snapshot) => {{
 const point = snapshot.val();
 if (point && point.lat && point.lng) {{
 trackPolylines[userId].addLatLng([point.lat, point.lng]);
+// Làm mượt đường: giảm số điểm (tùy chọn)
+if (trackPolylines[userId].getLatLngs().length > 30) {{
+    const latlngs = trackPolylines[userId].getLatLngs();
+    const smoothed = latlngs.filter((_, i) => i % 2 === 0);
+    trackPolylines[userId].setLatLngs(smoothed);
+}}
 }}
 }});
 }}
@@ -1234,7 +1298,8 @@ if (!order || order.status !== 'active') return;
 
 const latlngs = [[order.fromLat, order.fromLng], [order.toLat, order.toLng]];
 const polyline = L.polyline(latlngs, {{
-color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10'
+color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10',
+renderer: L.canvas()
 }}).addTo(map);
 if (polyline.arrowheads) {{
 polyline.arrowheads({{ size: '12px', frequency: 'all', color: '#ff8800' }});
@@ -1280,7 +1345,10 @@ function zoomToAllOfficers() {{
 const markers = Object.values(officerMarkers);
 if (markers.length === 0) return;
 const group = L.featureGroup(markers);
-map.fitBounds(group.getBounds(), {{ padding: [50, 50] }});
+map.fitBounds(group.getBounds(), {{ 
+    padding: [50, 50],
+    animate: false
+}});
 }}
 
 onValue(officersRef, (snapshot) => {{
