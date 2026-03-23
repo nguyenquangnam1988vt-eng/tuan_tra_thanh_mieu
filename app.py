@@ -66,6 +66,7 @@ def load_credentials_from_firebase():
     try:
         auth_data = db.child("auth_credentials").get().val()
 
+        # Nếu chưa có → tạo admin mặc định
         if not auth_data or "usernames" not in auth_data:
             default_password = "admin123"
             hashed = Hasher([default_password]).generate()[0]
@@ -85,13 +86,16 @@ def load_credentials_from_firebase():
             db.child("auth_credentials").set(default_admin)
             return default_admin
 
+        # Đảm bảo dữ liệu sạch
         usernames = auth_data.get("usernames", {})
+
         clean_users = {}
 
         for u, info in usernames.items():
             if not isinstance(info, dict):
                 continue
 
+            # Đảm bảo đủ field
             clean_users[u] = {
                 "email": info.get("email", ""),
                 "name": info.get("name", u),
@@ -114,8 +118,10 @@ def save_credentials_to_firebase(credentials):
         st.error(f"Lỗi lưu credentials: {e}")
         return False
 
+# Đọc credentials từ Firebase
 credentials_data = load_credentials_from_firebase()
 
+# Đọc config cookie từ file (nếu có) hoặc dùng mặc định
 try:
     with open("config.yaml") as file:
         config_yaml = yaml.load(file, Loader=SafeLoader)
@@ -217,7 +223,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. JAVASCRIPT LẤY GPS (ĐÃ TỐI ƯU: chỉ gửi khi di chuyển >3m)
+# 8. JAVASCRIPT LẤY GPS
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -307,14 +313,6 @@ if st.session_state.sharing:
 
             let lat=position.coords.latitude;
             let lng=position.coords.longitude;
-
-            // Nếu chưa có vị trí cũ thì gửi luôn
-            let shouldSend = true;
-            if(lastLat !== null){{
-                const dist = distance(lastLat, lastLng, lat, lng);
-                if(dist < 3) shouldSend = false; // chỉ gửi khi di chuyển >3m
-            }}
-            if(!shouldSend) return;
 
             if(lastLat!==null){{
                 lat=lastLat*0.7 + lat*0.3;
@@ -619,12 +617,13 @@ if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
         st.sidebar.info("Không có báo động nào")
 
 # ==============================
-# 14. QUẢN LÝ USER (ADMIN)
+# 14. QUẢN LÝ USER (ADMIN) - THÊM/XÓA TRONG GIAO DIỆN
 # ==============================
 if user_role == "admin":
     st.sidebar.markdown("---")
     st.sidebar.subheader("👤 Quản lý tài khoản")
     
+    # Form thêm user mới
     with st.sidebar.expander("➕ Thêm user mới"):
         new_username = st.text_input("Tên đăng nhập")
         new_email = st.text_input("Email")
@@ -653,6 +652,7 @@ if user_role == "admin":
                 else:
                     st.sidebar.error("Lỗi lưu dữ liệu")
     
+    # Hiển thị danh sách user và cho phép xóa
     with st.sidebar.expander("🗑️ Xóa user"):
         users = list(config["credentials"]["usernames"].keys())
         if users:
@@ -745,13 +745,12 @@ fcm_vapid_key = st.secrets.get("fcm", {}).get("vapid_key", "")
 stationary_officers = detect_stationary_officers()
 stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
-user_role_json = json.dumps(user_role)
 
 # ==============================
-# 19. HTML BẢN ĐỒ REALTIME (TỐI ƯU HIỆU NĂNG CAO)
+# 19. HTML BẢN ĐỒ REALTIME
 # ==============================
 map_html = f"""
-<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .dragging-cursor {{ cursor: grabbing !important; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
+<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 const firebaseConfig = {json.dumps(firebase_config)};
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
@@ -759,13 +758,11 @@ const messaging = getMessaging(app);
 
 const myUsername = "{username}";
 const myName = "{name}";
-const userRole = {user_role_json};
 const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
 
 console.log("👤 Username:", myUsername);
-console.log("👤 Role:", userRole);
 
 function haversine(lat1, lng1, lat2, lng2) {{
 const R = 6371e3;
@@ -807,31 +804,13 @@ let map;
 
 if (savedCenter && savedZoom) {{
 const center = JSON.parse(savedCenter);
-map = L.map('map', {{
-    preferCanvas: true,
-    zoomAnimation: false,
-    fadeAnimation: false,
-    markerZoomAnimation: false,
-    inertia: false
-}}).setView(center, parseInt(savedZoom));
+map = L.map('map').setView(center, parseInt(savedZoom));
 }} else {{
-map = L.map('map', {{
-    preferCanvas: true,
-    zoomAnimation: false,
-    fadeAnimation: false,
-    markerZoomAnimation: false,
-    inertia: false
-}}).setView([21.0285, 105.8542], 13);
+map = L.map('map').setView([21.0285, 105.8542], 13);
 }}
 
-// Tile đẹp, mượt, tối ưu
-L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 20,
-    updateWhenZooming: false,
-    updateWhenIdle: true,
-    keepBuffer: 4
+L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+attribution: '© OpenStreetMap'
 }}).addTo(map);
 
 map.on('moveend', () => {{
@@ -846,7 +825,6 @@ const pointMarkers = {{}};
 const incidentMarkers = {{}};
 const trackPolylines = {{}};
 const trackListeners = {{}};
-const moveOrderLines = {{}};
 
 let zoomedToMe = sessionStorage.getItem('zoomedToMe') === 'true';
 
@@ -887,8 +865,7 @@ sessionStorage.setItem('zoomedToMe', 'true');
 
 stationaryOfficers.forEach(officer => {{
 L.circleMarker([officer.lat, officer.lng], {{
-radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2,
-renderer: L.canvas()
+radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2
 }}).addTo(map).bindTooltip(`⚠ ${{officer.name}} đứng yên >15 phút`);
 }});
 
@@ -898,136 +875,17 @@ function getOfficerColor(uid) {{
 return userColors[uid] || '#0066cc';
 }}
 
-function enableDragOrder(marker, officerId) {{
-if (userRole !== 'commander') return;
-if (officerId === myUsername) return;
-
-let startLatLng = null;
-let tempLine = null;
-let isDragging = false;
-
-const onMouseDown = (e) => {{
-L.DomEvent.stopPropagation(e);
-L.DomEvent.preventDefault(e);
-
-startLatLng = marker.getLatLng();
-isDragging = true;
-map.dragging.disable();
-document.body.classList.add('dragging-cursor');
-
-tempLine = L.polyline([startLatLng, startLatLng], {{
-color: '#ff4444', weight: 4, dashArray: '5, 10'
-}}).addTo(map);
-
-const onMouseMove = (moveEvent) => {{
-if (!isDragging || !tempLine) return;
-const point = map.mouseEventToLatLng(moveEvent);
-tempLine.setLatLngs([startLatLng, point]);
-}};
-
-const onMouseUp = (upEvent) => {{
-if (!isDragging) return;
-const endPoint = map.mouseEventToLatLng(upEvent);
-const dist = haversine(startLatLng.lat, startLatLng.lng, endPoint.lat, endPoint.lng);
-if (dist > 10) {{
-const orderData = {{
-officerId: officerId,
-fromLat: startLatLng.lat,
-fromLng: startLatLng.lng,
-toLat: endPoint.lat,
-toLng: endPoint.lng,
-commanderName: myName,
-commanderId: myUsername,
-timestamp: Date.now(),
-status: 'active'
-}};
-push(ref(db, 'move_orders'), orderData);
-}}
-if (tempLine) map.removeLayer(tempLine);
-tempLine = null;
-isDragging = false;
-map.dragging.enable();
-document.body.classList.remove('dragging-cursor');
-window.removeEventListener('mousemove', onMouseMove);
-window.removeEventListener('mouseup', onMouseUp);
-}};
-
-window.addEventListener('mousemove', onMouseMove);
-window.addEventListener('mouseup', onMouseUp);
-}};
-
-marker.on('mousedown', onMouseDown);
-
-marker.on('touchstart', (e) => {{
-L.DomEvent.stopPropagation(e);
-L.DomEvent.preventDefault(e);
-startLatLng = marker.getLatLng();
-isDragging = true;
-map.dragging.disable();
-document.body.classList.add('dragging-cursor');
-
-tempLine = L.polyline([startLatLng, startLatLng], {{
-color: '#ff4444', weight: 4, dashArray: '5, 10'
-}}).addTo(map);
-
-const onTouchMove = (moveEvent) => {{
-if (!isDragging || !tempLine) return;
-const touch = moveEvent.touches[0];
-const point = map.mouseEventToLatLng(touch);
-tempLine.setLatLngs([startLatLng, point]);
-}};
-
-const onTouchEnd = (endEvent) => {{
-if (!isDragging) return;
-const lastTouch = endEvent.changedTouches[0];
-const endPoint = map.mouseEventToLatLng(lastTouch);
-const dist = haversine(startLatLng.lat, startLatLng.lng, endPoint.lat, endPoint.lng);
-if (dist > 10) {{
-const orderData = {{
-officerId: officerId,
-fromLat: startLatLng.lat,
-fromLng: startLatLng.lng,
-toLat: endPoint.lat,
-toLng: endPoint.lng,
-commanderName: myName,
-commanderId: myUsername,
-timestamp: Date.now(),
-status: 'active'
-}};
-push(ref(db, 'move_orders'), orderData);
-}}
-if (tempLine) map.removeLayer(tempLine);
-tempLine = null;
-isDragging = false;
-map.dragging.enable();
-document.body.classList.remove('dragging-cursor');
-window.removeEventListener('touchmove', onTouchMove);
-window.removeEventListener('touchend', onTouchEnd);
-}};
-
-window.addEventListener('touchmove', onTouchMove);
-window.addEventListener('touchend', onTouchEnd);
-}});
-}}
-
-// Thêm marker mới
 onChildAdded(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
 const color = getOfficerColor(id);
 const marker = L.circleMarker([officer.lat, officer.lng], {{
-    radius: 7,
-    color: color,
-    fillColor: color,
-    fillOpacity: 0.9,
-    weight: 1,
-    renderer: L.canvas()
+radius: 8, color: color, fillColor: color, fillOpacity: 0.8, weight: 1
 }}).addTo(map);
 marker.bindTooltip(officer.name, {{
 permanent: true, direction: 'top', offset: [0, -8], className: 'officer-label'
 }});
 officerMarkers[id] = marker;
-enableDragOrder(marker, id);
 
 if (id === myUsername && !zoomedToMe) {{
 map.setView([officer.lat, officer.lng], 16);
@@ -1036,33 +894,15 @@ sessionStorage.setItem('zoomedToMe', 'true');
 }}
 }});
 
-// Cập nhật marker mượt với animation lerp
 onChildChanged(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
-const marker = officerMarkers[id];
-if (!marker) return;
-
-const start = marker.getLatLng();
-const end = L.latLng(officer.lat, officer.lng);
-const steps = 5;
-let step = 0;
-
-function animate() {{
-    step++;
-    const lat = start.lat + (end.lat - start.lat) * (step / steps);
-    const lng = start.lng + (end.lng - start.lng) * (step / steps);
-    marker.setLatLng([lat, lng]);
-
-    if (step < steps) {{
-        requestAnimationFrame(animate);
-    }}
-}}
-animate();
-
-marker.setTooltipContent(officer.name);
+if (officerMarkers[id]) {{
+officerMarkers[id].setLatLng([officer.lat, officer.lng]);
+officerMarkers[id].setTooltipContent(officer.name);
 if (id === myUsername) {{
 map.setView([officer.lat, officer.lng], map.getZoom());
+}}
 }}
 }});
 
@@ -1168,8 +1008,7 @@ set(ref(db, `markers/${{userId}}/${{markerId}}`), null);
 return;
 }}
 const marker = L.circleMarker([point.lat, point.lng], {{
-radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
-renderer: L.canvas()
+radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1
 }}).addTo(map);
 marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
 pointMarkers[fullId] = marker;
@@ -1243,10 +1082,9 @@ push(ref(db, 'markers/{username}'), newPoint);
 map.on('touchend', () => clearTimeout(pressTimer));
 map.on('touchcancel', () => clearTimeout(pressTimer));
 
-// Hàm tải track với limit 30 điểm và tối ưu polyline
 function loadUserTracks(userId, userName, show) {{
 const tracksRef = ref(db, 'tracks/' + userId + '/points');
-const tracksQuery = query(tracksRef, limitToLast(30));
+const tracksQuery = query(tracksRef, limitToLast(100));
 if (!show) {{
 if (trackPolylines[userId]) {{
 map.removeLayer(trackPolylines[userId]);
@@ -1260,24 +1098,13 @@ if (!trackPolylines[userId]) {{
 const hue = (userName.split('').reduce((a,b) => a + b.charCodeAt(0), 0) * 31) % 360;
 const color = `hsl(${{hue}}, 70%, 50%)`;
 trackPolylines[userId] = L.polyline([], {{
-    color: color,
-    weight: 3,
-    opacity: 0.7,
-    smoothFactor: 5,
-    noClip: true,
-    renderer: L.canvas()
+color: color, weight: 3, opacity: 0.6, smoothFactor: 1.5
 }}).addTo(map);
 }}
 onChildAdded(tracksQuery, (snapshot) => {{
 const point = snapshot.val();
 if (point && point.lat && point.lng) {{
 trackPolylines[userId].addLatLng([point.lat, point.lng]);
-// Làm mượt đường: giảm số điểm (tùy chọn)
-if (trackPolylines[userId].getLatLngs().length > 30) {{
-    const latlngs = trackPolylines[userId].getLatLngs();
-    const smoothed = latlngs.filter((_, i) => i % 2 === 0);
-    trackPolylines[userId].setLatLngs(smoothed);
-}}
 }}
 }});
 }}
@@ -1289,66 +1116,11 @@ loadUserTracks(uid, officers[uid].name, showTracks[uid] || false);
 }});
 }});
 
-const moveOrdersRef = ref(db, 'move_orders');
-
-onChildAdded(moveOrdersRef, (snapshot) => {{
-const order = snapshot.val();
-const orderId = snapshot.key;
-if (!order || order.status !== 'active') return;
-
-const latlngs = [[order.fromLat, order.fromLng], [order.toLat, order.toLng]];
-const polyline = L.polyline(latlngs, {{
-color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10',
-renderer: L.canvas()
-}}).addTo(map);
-if (polyline.arrowheads) {{
-polyline.arrowheads({{ size: '12px', frequency: 'all', color: '#ff8800' }});
-}}
-const officerName = officerMarkers[order.officerId]?.getTooltip()?.getContent() || order.officerId;
-polyline.bindPopup(`📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{officerName}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}`);
-moveOrderLines[orderId] = polyline;
-
-if (order.officerId === myUsername) {{
-L.popup()
-.setLatLng([order.toLat, order.toLng])
-.setContent(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}`)
-.openOn(map);
-}}
-}});
-
-onChildRemoved(moveOrdersRef, (snapshot) => {{
-const orderId = snapshot.key;
-if (moveOrderLines[orderId]) {{
-map.removeLayer(moveOrderLines[orderId]);
-delete moveOrderLines[orderId];
-}}
-}});
-
-function checkOrdersCompletion() {{
-get(moveOrdersRef).then((snapshot) => {{
-const orders = snapshot.val() || {{}};
-for (const [orderId, order] of Object.entries(orders)) {{
-if (order.status !== 'active') continue;
-const officer = officerMarkers[order.officerId];
-if (!officer) continue;
-const officerPos = officer.getLatLng();
-const dist = haversine(officerPos.lat, officerPos.lng, order.toLat, order.toLng);
-if (dist < 20) {{
-set(ref(db, 'move_orders/' + orderId), null);
-}}
-}}
-}}).catch(console.error);
-}}
-setInterval(checkOrdersCompletion, 5000);
-
 function zoomToAllOfficers() {{
 const markers = Object.values(officerMarkers);
 if (markers.length === 0) return;
 const group = L.featureGroup(markers);
-map.fitBounds(group.getBounds(), {{ 
-    padding: [50, 50],
-    animate: false
-}});
+map.fitBounds(group.getBounds(), {{ padding: [50, 50] }});
 }}
 
 onValue(officersRef, (snapshot) => {{
@@ -1359,7 +1131,6 @@ zoomToAllOfficers();
 }});
 
 </script> </head> <body> <div id="map"></div> </body> </html> """
-
 # ==============================
 # 20. TABS: BẢN ĐỒ VÀ CHAT
 # ==============================
