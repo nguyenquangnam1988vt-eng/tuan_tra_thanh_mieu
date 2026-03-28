@@ -138,32 +138,32 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. CẤU HÌNH TRANG VÀ CSS NÂNG CẤP
+# 4. ĐĂNG NHẬP
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
-# === CSS TỔNG THỂ ===
+# ===== THÊM CSS TỔNG THỂ =====
 st.markdown("""
 <style>
-/* FONT */
+/* ===== FONT ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
-/* MAIN BACKGROUND */
+/* ===== MAIN BACKGROUND ===== */
 .stApp {
     background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
 }
 
-/* SIDEBAR */
+/* ===== SIDEBAR ===== */
 section[data-testid="stSidebar"] {
     background: rgba(15, 32, 39, 0.95);
     color: white;
 }
 
-/* BUTTON */
+/* ===== BUTTON ===== */
 .stButton button {
     border-radius: 12px;
     background: linear-gradient(135deg, #ff8800, #ff5500);
@@ -179,17 +179,17 @@ section[data-testid="stSidebar"] {
     box-shadow: 0 0 10px rgba(255,136,0,0.6);
 }
 
-/* INPUT */
+/* ===== INPUT ===== */
 input, textarea {
     border-radius: 10px !important;
 }
 
-/* TITLE */
+/* ===== TITLE ===== */
 h1, h2, h3 {
     color: white;
 }
 
-/* SCROLLBAR */
+/* ===== SCROLL ===== */
 ::-webkit-scrollbar {
     width: 6px;
 }
@@ -635,7 +635,7 @@ def detect_stationary_officers():
         return []
 
 # ==============================
-# 12. SIDEBAR CÔNG CỤ (giữ nguyên nhưng sẽ có CSS đẹp hơn)
+# 12. SIDEBAR CÔNG CỤ
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🚨 Công cụ phối hợp")
@@ -911,7 +911,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 20. MAP HTML (NÂNG CẤP MARKER, HIỆU ỨNG, ALERT)
+# 20. MAP HTML (NÂNG CẤP MARKER, HIỆU ỨNG)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -924,24 +924,12 @@ map_html = f"""
     #map {{ height: 600px; width: 100%; }} 
     .leaflet-container {{ will-change: transform; }} 
     .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} 
-    .alert-marker {{
-        width: 24px;
-        height: 24px;
-        background: red;
-        border-radius: 50%;
-        border: 3px solid white;
-        box-shadow: 0 0 20px red;
-        animation: pulse 1s infinite;
-    }}
-    @keyframes pulse {{
-        0% {{ transform: scale(1); opacity: 1; }}
-        50% {{ transform: scale(1.5); opacity: 0.5; }}
-        100% {{ transform: scale(1); opacity: 1; }}
-    }}
+    .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 20px red; animation: pulse 1s infinite; }} 
+    @keyframes pulse {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.5); opacity: 0.5; }} 100% {{ transform: scale(1); opacity: 1; }} }} 
     .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} 
     .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} 
     .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} 
-    /* HIỆU ỨNG HOVER MARKER */
+    /* HIỆU ỨNG HOVER CHO MARKER */
     .leaflet-marker-icon {{
         transition: transform 0.2s ease;
     }}
@@ -1048,8 +1036,8 @@ let selectedOfficerId = null;
 let selectedOfficerName = null;
 let tempInfoControl = null;
 let selectionClickHandler = null;
-let hasSelected = false;  // chống double tap
-let holdTimer = null;     // timer cho giữ 5s
+let hasSelected = false;
+let holdTimer = null;
 
 const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
 alertSound.preload = "auto";
@@ -1101,6 +1089,15 @@ function getOfficerColor(uid) {{
     return userColors[uid] || '#0066cc';
 }}
 
+function createOfficerIcon(color) {{
+    return L.divIcon({{
+        className: '',
+        html: `<div style="background:${{color}}; width:22px; height:22px; border-radius:50%; border:3px solid white; box-shadow:0 0 12px ${{color}};"></div>`,
+        iconSize: [22, 22],
+        popupAnchor: [0, -12]
+    }});
+}}
+
 function activateSelectionMode(officerId, officerName) {{
     if (selectionMode) return;
     selectionMode = true;
@@ -1133,7 +1130,6 @@ function activateSelectionMode(officerId, officerName) {{
 
     map.getContainer().style.cursor = 'crosshair';
 
-    // === CƠ CHẾ GIỮ 5 GIÂY ===
     map.on('touchstart', (e) => {{
         if (!selectionMode || hasSelected) return;
         const touch = e.originalEvent.touches[0];
@@ -1158,14 +1154,13 @@ function activateSelectionMode(officerId, officerName) {{
                     status: 'active'
                 }};
                 push(ref(db, 'move_orders'), orderData);
-                // feedback
                 const marker = L.marker([endLat, endLng]).addTo(map);
                 marker.bindPopup("📍 Đã chọn điểm (giữ 5s)").openPopup();
                 setTimeout(() => map.removeLayer(marker), 5000);
                 if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
             }}
             deactivateSelectionMode();
-        }}, 5000); // 5 giây
+        }}, 5000);
     }});
     map.on('touchend', () => {{
         clearTimeout(holdTimer);
@@ -1179,7 +1174,6 @@ function deactivateSelectionMode() {{
     if (!selectionMode) return;
     if (tempInfoControl) map.removeControl(tempInfoControl);
     map.getContainer().style.cursor = '';
-    // xóa timer nếu còn
     if (holdTimer) clearTimeout(holdTimer);
     selectionMode = false;
     selectedOfficerId = null;
@@ -1188,7 +1182,7 @@ function deactivateSelectionMode() {{
     hasSelected = false;
 }}
 
-// Thêm marker officer với icon glow
+// Thêm marker officer (nâng cấp)
 onChildAdded(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
@@ -1197,24 +1191,10 @@ onChildAdded(officersRef, (data) => {{
         return;
     }}
     const color = getOfficerColor(id);
-    const icon = L.divIcon({{
-        className: '',
-        html: `
-            <div style="
-                background:${color};
-                width:22px;
-                height:22px;
-                border-radius:50%;
-                border:3px solid white;
-                box-shadow:0 0 12px ${color};
-            "></div>
-        `,
-        iconSize: [22, 22],
-        popupAnchor: [0, -11]
-    }});
+    const icon = createOfficerIcon(color);
     const marker = L.marker([officer.lat, officer.lng], {{ icon: icon }}).addTo(map);
     marker.bindTooltip(officer.name, {{
-        permanent: true, direction: 'top', offset: [0, -15], className: 'officer-label'
+        permanent: true, direction: 'top', offset: [0, -12], className: 'officer-label'
     }});
     
     officerMarkers[id] = marker;
@@ -1241,24 +1221,9 @@ onChildChanged(officersRef, (data) => {{
         const lat = start.lat + (end.lat - start.lat) * (step / steps);
         const lng = start.lng + (end.lng - start.lng) * (step / steps);
         marker.setLatLng([lat, lng]);
-        // Cập nhật lại icon (giữ màu)
-        const color = getOfficerColor(id);
-        const icon = L.divIcon({{
-            className: '',
-            html: `
-                <div style="
-                    background:${color};
-                    width:22px;
-                    height:22px;
-                    border-radius:50%;
-                    border:3px solid white;
-                    box-shadow:0 0 12px ${color};
-                "></div>
-            `,
-            iconSize: [22, 22],
-            popupAnchor: [0, -11]
-        }});
-        marker.setIcon(icon);
+        // Cập nhật icon với màu hiện tại (có thể thay đổi nếu offline)
+        const currentColor = getOfficerColor(id);
+        marker.setIcon(createOfficerIcon(currentColor));
         if (step < steps) requestAnimationFrame(animate);
     }}
     animate();
@@ -1276,7 +1241,7 @@ onChildRemoved(officersRef, (data) => {{
     }}
 }});
 
-// Online status
+// Online status (cập nhật màu marker)
 const OFFLINE_TIMEOUT = 60000;
 function updateOnlineStatus() {{
     const now = Date.now();
@@ -1286,50 +1251,20 @@ function updateOnlineStatus() {{
             const marker = officerMarkers[uid];
             if (marker) {{
                 const lastUpdate = officers[uid].lastUpdate;
+                let color;
                 if (lastUpdate === 0 || now - lastUpdate > OFFLINE_TIMEOUT) {{
-                    // Đổi màu xám
-                    const icon = L.divIcon({{
-                        className: '',
-                        html: `
-                            <div style="
-                                background:#aaa;
-                                width:22px;
-                                height:22px;
-                                border-radius:50%;
-                                border:3px solid white;
-                                box-shadow:0 0 12px #aaa;
-                            "></div>
-                        `,
-                        iconSize: [22, 22],
-                        popupAnchor: [0, -11]
-                    }});
-                    marker.setIcon(icon);
+                    color = '#aaa';
                 }} else {{
-                    const originalColor = getOfficerColor(uid);
-                    const icon = L.divIcon({{
-                        className: '',
-                        html: `
-                            <div style="
-                                background:${originalColor};
-                                width:22px;
-                                height:22px;
-                                border-radius:50%;
-                                border:3px solid white;
-                                box-shadow:0 0 12px ${originalColor};
-                            "></div>
-                        `,
-                        iconSize: [22, 22],
-                        popupAnchor: [0, -11]
-                    }});
-                    marker.setIcon(icon);
+                    color = getOfficerColor(uid);
                 }}
+                marker.setIcon(createOfficerIcon(color));
             }}
         }});
     }}).catch(console.error);
 }}
 setInterval(updateOnlineStatus, 30000);
 
-// Alerts
+// Alerts (giữ nguyên)
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 function getAlertPopupContent(alert) {{
@@ -1434,11 +1369,10 @@ onChildRemoved(incidentsRef, (data) => {{
     }}
 }});
 
-// === GHI CHÚ (GIỮ 2 GIÂY) CHỈ KHI KHÔNG Ở CHẾ ĐỘ CHỌN LỆNH ===
+// GHI CHÚ (GIỮ 2 GIÂY) CHỈ KHI KHÔNG Ở CHẾ ĐỘ CHỌN LỆNH
 if (userRole !== 'commander') {{
     let pressTimerMarker = null;
     map.on('touchstart', (e) => {{
-        // Nếu đang ở chế độ ra lệnh thì KHÔNG tạo ghi chú
         if (selectionMode) return;
         const touch = e.originalEvent.touches[0];
         const latlng = map.mouseEventToLatLng(touch);
@@ -1459,7 +1393,7 @@ if (userRole !== 'commander') {{
     map.on('touchcancel', () => clearTimeout(pressTimerMarker));
 }}
 map.on('contextmenu', (e) => {{
-    if (selectionMode) return;  // chặn khi đang chọn lệnh
+    if (selectionMode) return;
     e.originalEvent.preventDefault();
     const note = prompt("Nhập ghi chú cho điểm này:");
     if (note && note.trim()) {{
@@ -1473,7 +1407,7 @@ map.on('contextmenu', (e) => {{
     }}
 }});
 
-// Tracks
+// Tracks (giữ nguyên)
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1516,7 +1450,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// Move orders
+// Move orders (giữ nguyên)
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1586,7 +1520,7 @@ if (window.pendingOrder && window.pendingOrder.officerId) {{
 </script> </body> </html> """
 
 # ==============================
-# 21. TABS (CHAT UI ĐÃ NÂNG CẤP)
+# 21. TABS
 # ==============================
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
@@ -1616,18 +1550,17 @@ with tab2:
             is_me = (msg["from"] == username)
             align = "right" if is_me else "left"
             bg_color = "#dcf8c6" if is_me else "#f1f0f0"
-            # Chat bubble nâng cấp với shadow, border-radius
             st.markdown(
                 f"""
-                <div style='display: flex; justify-content: {align}; margin:5px;'>
+                <div style='display:flex; justify-content:{align}; margin:5px;'>
                     <div style='
-                        background-color: {bg_color};
-                        padding: 10px 15px;
-                        border-radius: 15px;
-                        max-width: 70%;
-                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                        background:{bg_color};
+                        padding:10px 15px;
+                        border-radius:15px;
+                        max-width:70%;
+                        box-shadow:0 2px 8px rgba(0,0,0,0.2);
                     '>
-                        <b>{msg['name']}</b> <span style='font-size:11px; color:gray'>{vn_time}</span><br>
+                        <b>{msg['name']}</b> <span style='font-size:11px;color:gray'>{vn_time}</span><br>
                         {msg['message']}
                     </div>
                 </div>
