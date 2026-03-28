@@ -851,7 +851,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 20. MAP HTML (MapLibre GL JS)
+# 20. MAP HTML (MapLibre GL JS) - ĐÃ SỬA LỖI ESCAPE
 # ==============================
 map_html = f"""
 <!DOCTYPE html>
@@ -959,7 +959,7 @@ onMessage(messaging, payload => {{
 // Khởi tạo bản đồ MapLibre
 let map = new maplibregl.Map({{
     container: 'map',
-    style: 'https://tiles.stadiamaps.com/styles/alidade_smooth.json', // hoặc dùng 'https://demotiles.maplibre.org/style.json' để test
+    style: 'https://tiles.stadiamaps.com/styles/alidade_smooth.json',
     center: [105.8542, 21.0285],
     zoom: 13,
     attributionControl: true,
@@ -1002,13 +1002,13 @@ if (navigator.geolocation && !zoomedToMe) {{
 }}
 
 // Lưu trữ các layer và marker
-const officerMarkers = {{}}; // lưu {id: {markerElement, popup, ...}}
+const officerMarkers = {{}};
 const alertMarkers = {{}};
 const pointMarkers = {{}};
 const incidentMarkers = {{}};
-const trackSources = {{}};    // lưu source id cho track
+const trackSources = {{}};
 const trackLayers = {{}};
-const moveOrderLines = {{}};  // lưu feature id cho đường di chuyển
+const moveOrderLines = {{}};
 
 let selectionMode = false;
 let selectedOfficerId = null;
@@ -1028,7 +1028,7 @@ if (!sessionStorage.getItem('audioActivated')) {{
     alertSound.load();
 }}
 
-// Hàm tạo popup cho officer (HTML)
+// Hàm tạo popup cho officer
 function getOfficerPopupContent(officer) {{
     return `<b>${{officer.name}}</b><br>Vị trí: ${{officer.lat.toFixed(6)}}, ${{officer.lng.toFixed(6)}}`;
 }}
@@ -1079,7 +1079,7 @@ function removeOfficerMarker(id) {{
     }}
 }}
 
-// Alert marker (dùng HTML marker)
+// Alert marker
 function addAlertMarker(id, alert) {{
     if (!isValidVNCoordinate(alert.lat, alert.lng)) return;
     const el = document.createElement('div');
@@ -1145,7 +1145,7 @@ function removeIncidentMarker(id) {{
     }}
 }}
 
-// Marker điểm (ghi chú) dùng circle marker? MapLibre không có sẵn circle marker nhưng có thể dùng HTML marker
+// Marker điểm (ghi chú)
 function addPointMarker(key, point) {{
     if (!isValidVNCoordinate(point.lat, point.lng)) return;
     const el = document.createElement('div');
@@ -1242,7 +1242,7 @@ onChildRemoved(officersRef, (data) => {{
     removeOfficerMarker(id);
 }});
 
-// Stationary officers (hiển thị dưới dạng circle marker)
+// Stationary officers
 stationaryOfficers.forEach(officer => {{
     if (isValidVNCoordinate(officer.lat, officer.lng)) {{
         const el = document.createElement('div');
@@ -1320,14 +1320,14 @@ onChildRemoved(incidentsRef, (data) => {{
 }});
 
 // Track
-const trackPointsCache = {{}}; // lưu danh sách điểm cho mỗi user
+const trackPointsCache = {{}};
 function loadUserTracks(userId, userName, show) {{
     if (!show) {{
         removeTrackLayer(userId);
         if (trackPointsCache[userId]) delete trackPointsCache[userId];
         return;
     }}
-    if (trackSources[userId]) return; // đã có
+    if (trackSources[userId]) return;
     const hue = (userName.split('').reduce((a,b) => a + b.charCodeAt(0), 0) * 31) % 360;
     const color = `hsl(${{hue}}, 70%, 50%)`;
     addTrackLayer(userId, color);
@@ -1350,7 +1350,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// Move orders (đường di chuyển)
+// Move orders
 const moveOrdersRef = ref(db, 'move_orders');
 function addMoveOrder(orderId, order) {{
     if (!order || order.status !== 'active') return;
@@ -1401,7 +1401,7 @@ function addMoveOrder(orderId, order) {{
     }}
 }}
 function removeMoveOrder(orderId) {{
-    const { sourceId, layerId } = moveOrderLines[orderId];
+    const {{ sourceId, layerId }} = moveOrderLines[orderId];
     if (layerId && map.getLayer(layerId)) map.removeLayer(layerId);
     if (sourceId && map.getSource(sourceId)) map.removeSource(sourceId);
     delete moveOrderLines[orderId];
@@ -1437,7 +1437,6 @@ function activateSelectionMode(officerId, officerName) {{
     selectedOfficerName = officerName;
     hasSelected = false;
 
-    // Tạo div thông báo
     tempInfoDiv = document.createElement('div');
     tempInfoDiv.className = 'selection-info';
     tempInfoDiv.innerHTML = `
@@ -1450,7 +1449,6 @@ function activateSelectionMode(officerId, officerName) {{
 
     map.getCanvas().style.cursor = 'crosshair';
 
-    // Sự kiện giữ 5s trên map
     let touchStartTime = null;
     let touchStartLngLat = null;
     let longPressTimer = null;
@@ -1508,7 +1506,6 @@ function activateSelectionMode(officerId, officerName) {{
     map.on('touchstart', onTouchStart);
     map.on('touchend', onTouchEnd);
     map.on('touchcancel', onTouchCancel);
-    // Lưu lại để hủy sau
     window._selectionHandlers = {{ onTouchStart, onTouchEnd, onTouchCancel }};
 }}
 
@@ -1565,7 +1562,7 @@ map.on('contextmenu', (e) => {{
     }}
 }});
 
-// Xử lý pending order (chờ marker load)
+// Xử lý pending order
 if (window.pendingOrder && window.pendingOrder.officerId) {{
     const checkInterval = setInterval(() => {{
         if (officerMarkers[window.pendingOrder.officerId]) {{
