@@ -972,10 +972,11 @@ onMessage(messaging, payload => {{
 }});
 
 // Khởi tạo bản đồ MapLibre sau khi DOM sẵn sàng
+maptiler_key = st.secrets["maptiler_key"]
 window.onload = () => {{
     let map = new maplibregl.Map({{
         container: 'map',
-        style: 'https://demotiles.maplibre.org/style.json', // style nhẹ, không cần key
+        style: 'https://api.maptiler.com/maps/streets/style.json?key={maptiler_key}', // style nhẹ, không cần key
         center: [105.8542, 21.0285],
         zoom: 13,
         attributionControl: true,
