@@ -959,7 +959,7 @@ onMessage(messaging, payload => {{
 // Khởi tạo bản đồ MapLibre
 let map = new maplibregl.Map({{
     container: 'map',
-    style: 'https://tiles.stadiamaps.com/styles/alidade_smooth.json',
+    style: 'https://demotiles.maplibre.org/style.json',
     center: [105.8542, 21.0285],
     zoom: 13,
     attributionControl: true,
