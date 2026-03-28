@@ -142,14 +142,24 @@ authenticator = stauth.Authenticate(
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
-# ===== THÊM CSS TỔNG THỂ =====
+# ===== CSS NÂNG CẤP =====
 st.markdown("""
 <style>
+:root {
+    --primary: #ff8800;
+    --secondary: #1e293b;
+    --bg: #0f172a;
+    --card: #1e293b;
+    --text: #f1f5f9;
+    --accent: #ff5500;
+}
+
 /* ===== FONT ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
+    color: var(--text);
 }
 
 /* ===== MAIN BACKGROUND ===== */
@@ -159,34 +169,58 @@ html, body, [class*="css"] {
 
 /* ===== SIDEBAR ===== */
 section[data-testid="stSidebar"] {
-    background: rgba(15, 32, 39, 0.95);
-    color: white;
+    background: rgba(15, 32, 39, 0.85);
+    backdrop-filter: blur(10px);
+    color: var(--text);
+    border-right: 1px solid rgba(255,255,255,0.1);
+}
+
+/* ===== SIDEBAR CARD ===== */
+.sidebar-card {
+    background: rgba(255,255,255,0.08);
+    backdrop-filter: blur(5px);
+    border-radius: 16px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(255,255,255,0.1);
+    transition: all 0.2s;
+}
+.sidebar-card:hover {
+    background: rgba(255,255,255,0.12);
+    transform: translateY(-2px);
 }
 
 /* ===== BUTTON ===== */
 .stButton button {
     border-radius: 12px;
-    background: linear-gradient(135deg, #ff8800, #ff5500);
+    background: linear-gradient(135deg, var(--primary), var(--accent));
     color: white;
     font-weight: 600;
     border: none;
     padding: 8px 16px;
     transition: all 0.3s ease;
 }
-
 .stButton button:hover {
-    transform: scale(1.05);
-    box-shadow: 0 0 10px rgba(255,136,0,0.6);
+    transform: scale(1.02);
+    box-shadow: 0 0 12px rgba(255,136,0,0.4);
 }
 
 /* ===== INPUT ===== */
 input, textarea {
     border-radius: 10px !important;
+    background: rgba(255,255,255,0.1) !important;
+    border: 1px solid rgba(255,255,255,0.2) !important;
+    color: white !important;
+}
+input:focus, textarea:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 5px var(--primary) !important;
 }
 
 /* ===== TITLE ===== */
 h1, h2, h3 {
     color: white;
+    font-weight: 600;
 }
 
 /* ===== SCROLL ===== */
@@ -196,6 +230,14 @@ h1, h2, h3 {
 ::-webkit-scrollbar-thumb {
     background: #888;
     border-radius: 3px;
+}
+
+/* ===== GLASS EFFECT ===== */
+.glass {
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 15px;
+    border: 1px solid rgba(255,255,255,0.2);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -635,11 +677,11 @@ def detect_stationary_officers():
         return []
 
 # ==============================
-# 12. SIDEBAR CÔNG CỤ
+# 12. SIDEBAR CÔNG CỤ (dùng card)
 # ==============================
 st.sidebar.markdown("---")
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 st.sidebar.subheader("🚨 Công cụ phối hợp")
-
 if st.sidebar.button("🚨 Gửi báo động"):
     user_data = db.child("officers").child(username).get().val()
     if user_data and is_valid_coordinate(user_data.get("lat"), user_data.get("lng")):
@@ -667,7 +709,9 @@ if st.sidebar.button("🚨 Gửi báo động"):
         st.sidebar.success("Đã gửi yêu cầu báo động")
     else:
         st.sidebar.error("Bạn chưa chia sẻ vị trí hợp lệ")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 with st.sidebar.expander("📍 Đánh dấu điểm"):
     note = st.text_area("Ghi chú")
     if st.button("Thêm điểm tại vị trí hiện tại"):
@@ -684,7 +728,9 @@ with st.sidebar.expander("📍 Đánh dấu điểm"):
             st.sidebar.success("Đã thêm điểm")
         else:
             st.sidebar.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 if user_role == "commander":
     with st.sidebar.expander("🗑️ Xóa ghi chú (toàn bộ)"):
         if st.button("⚠️ Xóa tất cả ghi chú", help="Xóa toàn bộ markers của tất cả người dùng"):
@@ -693,7 +739,9 @@ if user_role == "commander":
                 st.sidebar.success("Đã xóa toàn bộ ghi chú!")
             except Exception as e:
                 st.sidebar.error(f"Lỗi xóa: {e}")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
     uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
     note_photo = st.text_input("Ghi chú (tùy chọn)")
@@ -722,11 +770,9 @@ with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
                     st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
             else:
                 st.sidebar.error("Không có vị trí hợp lệ")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
-# ==============================
-# 13. NHIỆM VỤ
-# ==============================
-st.sidebar.markdown("---")
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 st.sidebar.subheader("📋 Nhiệm vụ")
 if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
     alerts = db.child("alerts").get().val()
@@ -746,14 +792,14 @@ if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
             st.sidebar.info("Không có nhiệm vụ nào cho bạn")
     else:
         st.sidebar.info("Không có báo động nào")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 14. QUẢN LÝ USER (ADMIN)
+# 13. QUẢN LÝ USER (ADMIN)
 # ==============================
 if user_role == "admin":
-    st.sidebar.markdown("---")
+    st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
     st.sidebar.subheader("👤 Quản lý tài khoản")
-    
     with st.sidebar.expander("➕ Thêm user mới"):
         new_username = st.text_input("Tên đăng nhập")
         new_email = st.text_input("Email")
@@ -798,9 +844,10 @@ if user_role == "admin":
                         st.sidebar.error("Lỗi lưu dữ liệu")
         else:
             st.sidebar.info("Không có user nào")
+    st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 15. LOAD DỮ LIỆU (có spinner)
+# 14. LOAD DỮ LIỆU (có spinner)
 # ==============================
 with st.spinner("🔄 Đang tải dữ liệu..."):
     @st.cache_data(ttl=5)
@@ -845,14 +892,15 @@ with st.spinner("🔄 Đang tải dữ liệu..."):
             return {}
 
 # ==============================
-# 16. AUTO REFRESH
+# 15. AUTO REFRESH
 # ==============================
 st_autorefresh(interval=10000, key="auto_refresh")
 
 # ==============================
-# 17. CHECKBOX TRACK
+# 16. CHECKBOX TRACK
 # ==============================
 st.sidebar.markdown("---")
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 st.sidebar.subheader("🗺️ Lịch sử di chuyển")
 
 if 'show_tracks' not in st.session_state:
@@ -868,9 +916,10 @@ if officers:
             key=key
         )
         st.session_state.show_tracks[uid] = checked
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 18. CHUẨN BỊ MAP
+# 17. CHUẨN BỊ MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -893,7 +942,7 @@ except Exception as e:
     print("Cleanup error:", e)
 
 # ==============================
-# 19. ORDER JS
+# 18. ORDER JS
 # ==============================
 order_js = ""
 if user_role == "commander" and st.session_state.get('order_officer_id'):
@@ -911,7 +960,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 20. MAP HTML (NÂNG CẤP MARKER, HIỆU ỨNG)
+# 19. MAP HTML (NÂNG CẤP MARKER, HIỆU ỨNG)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1520,7 +1569,7 @@ if (window.pendingOrder && window.pendingOrder.officerId) {{
 </script> </body> </html> """
 
 # ==============================
-# 21. TABS
+# 20. TABS
 # ==============================
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
@@ -1548,20 +1597,25 @@ with tab2:
                 msg["timestamp"]/1000, tz=timezone(timedelta(hours=7))
             ).strftime("%H:%M")
             is_me = (msg["from"] == username)
+            avatar = msg['name'][0].upper()
             align = "right" if is_me else "left"
             bg_color = "#dcf8c6" if is_me else "#f1f0f0"
+            text_color = "black" if is_me else "#333"
+            # Avatar + bubble
             st.markdown(
                 f"""
-                <div style='display:flex; justify-content:{align}; margin:5px;'>
-                    <div style='
-                        background:{bg_color};
-                        padding:10px 15px;
-                        border-radius:15px;
-                        max-width:70%;
-                        box-shadow:0 2px 8px rgba(0,0,0,0.2);
-                    '>
-                        <b>{msg['name']}</b> <span style='font-size:11px;color:gray'>{vn_time}</span><br>
-                        {msg['message']}
+                <div style='display:flex; justify-content:{align}; margin:10px 0;'>
+                    <div style='display:flex; align-items:flex-end; max-width:80%; gap:8px;'>
+                        {"<div style='order:2;' " if is_me else ""}
+                            <div style='background:{bg_color}; padding:10px 15px; border-radius:15px; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
+                                <b>{msg['name']}</b> <span style='font-size:10px; color:gray'>{vn_time}</span><br>
+                                {msg['message']}
+                            </div>
+                        {"</div>" if is_me else ""}
+                        <div style='width:36px; height:36px; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:white;'>
+                            {avatar}
+                        </div>
+                        {"<div style='order:2;' " if not is_me else ""}</div>
                     </div>
                 </div>
                 """,
@@ -1599,9 +1653,10 @@ with tab2:
                 st.rerun()
 
 # ==============================
-# 22. DANH SÁCH CÁN BỘ ONLINE
+# 21. DANH SÁCH CÁN BỘ ONLINE
 # ==============================
 st.sidebar.markdown("---")
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 st.sidebar.subheader("👥 Cán bộ trực tuyến")
 
 if officers:
@@ -1610,11 +1665,13 @@ if officers:
         st.sidebar.write(f"• {info['name']} {label}")
 else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí hợp lệ")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 23. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
+# 22. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
 # ==============================
 all_markers = load_all_markers()
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
     if all_markers:
         valid_markers = {k: v for k, v in all_markers.items()
@@ -1627,11 +1684,13 @@ with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
             st.write("Chưa có điểm đánh dấu hợp lệ")
     else:
         st.write("Chưa có điểm đánh dấu")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 24. INCIDENTS GẦN ĐÂY
+# 23. INCIDENTS GẦN ĐÂY
 # ==============================
 incidents = load_incidents()
+st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
 with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
     if incidents:
         sorted_inc = sorted(incidents.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
@@ -1639,12 +1698,13 @@ with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
             st.write(f"📷 {inc['created_by']}: {inc.get('note', '')[:30]}...")
     else:
         st.write("Chưa có ảnh hiện trường")
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 25. DROPDOWN RA LỆNH CHO COMMANDER
+# 24. DROPDOWN RA LỆNH CHO COMMANDER
 # ==============================
 if user_role == "commander" and officers:
-    st.sidebar.markdown("---")
+    st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
     st.sidebar.subheader("🚶 Ra lệnh di chuyển (giữ 5 giây trên map)")
     officer_options = {uid: info['name'] for uid, info in officers.items() if uid != username}
     if officer_options:
@@ -1659,3 +1719,4 @@ if user_role == "commander" and officers:
             st.rerun()
     else:
         st.sidebar.info("Không có cán bộ khác trực tuyến")
+    st.sidebar.markdown('</div>', unsafe_allow_html=True)
