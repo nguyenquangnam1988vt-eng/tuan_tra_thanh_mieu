@@ -33,10 +33,14 @@ def haversine(lat1, lng1, lat2, lng2):
     return R * c
 
 def is_valid_coordinate(lat, lng):
-    """Kiểm tra tọa độ hợp lệ trong Việt Nam"""
-    return (isinstance(lat, (int, float)) and isinstance(lng, (int, float)) and
-            lat != 0 and lng != 0 and
-            8 <= lat <= 24 and 102 <= lng <= 110)
+    """Kiểm tra tọa độ hợp lệ: không None, không 0, và nằm trong khoảng Việt Nam mở rộng"""
+    if lat is None or lng is None:
+        return False
+    # Cho phép tọa độ 0 để test, nhưng khuyến cáo không dùng
+    if lat == 0 and lng == 0:
+        return False
+    # Giới hạn rộng hơn để bao phủ Việt Nam và vùng lân cận (có thể nới lỏng)
+    return (8 <= lat <= 24 and 102 <= lng <= 110)
 
 # ==============================
 # 1. HÀM UPLOAD ẢNH LÊN IMGBB
@@ -223,7 +227,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. JAVASCRIPT LẤY GPS (SỬA: KHÔNG SET lat=0,lng=0, THÊM FALLBACK VÀ LỌC VN)
+# 8. JAVASCRIPT LẤY GPS (SỬA: FALLBACK IP, NỚI LỎNG FILTER, THÊM DEBUG)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -247,7 +251,7 @@ if st.session_state.sharing:
     const officerName = "{name}";
     const officerRef = ref(database, 'officers/' + username);
 
-    // Không set lat/lng = 0 ban đầu nữa, chỉ set name và lastUpdate
+    // Ban đầu chỉ set name và lastUpdate
     set(officerRef, {{
         name: officerName,
         lastUpdate: serverTimestamp()
@@ -262,9 +266,11 @@ if st.session_state.sharing:
     let lastSendTime = 0;
     const SEND_INTERVAL = 5000;
 
-    // Hàm kiểm tra tọa độ có nằm trong Việt Nam không
-    function isValidVNCoordinate(lat, lng) {{
-        return (lat >= 8 && lat <= 24 && lng >= 102 && lng <= 110);
+    // Hàm kiểm tra tọa độ hợp lệ (không None, không 0)
+    function isValidCoordinate(lat, lng) {{
+        return (typeof lat === 'number' && typeof lng === 'number' &&
+                !isNaN(lat) && !isNaN(lng) &&
+                lat !== 0 && lng !== 0);
     }}
 
     function distance(lat1, lon1, lat2, lon2) {{
@@ -316,7 +322,7 @@ if st.session_state.sharing:
     fetch("https://ipapi.co/json/")
         .then(res => res.json())
         .then(data => {{
-            if (data.latitude && data.longitude && isValidVNCoordinate(data.latitude, data.longitude)) {{
+            if (data.latitude && data.longitude && isValidCoordinate(data.latitude, data.longitude)) {{
                 fallbackLat = data.latitude;
                 fallbackLng = data.longitude;
                 console.log("🌐 IP location VN:", fallbackLat, fallbackLng);
@@ -326,30 +332,54 @@ if st.session_state.sharing:
                 fallbackLng = 105.8542;
                 console.log("🌐 Dùng fallback Hà Nội");
             }}
+            // Sau khi có fallback, gửi vị trí fallback nếu chưa có GPS
+            if (!navigator.geolocation || lastLat === null) {{
+                set(officerRef, {{
+                    name: officerName,
+                    lat: fallbackLat,
+                    lng: fallbackLng,
+                    accuracy: 0,
+                    lastUpdate: serverTimestamp()
+                }});
+                console.log("📍 Đã gửi fallback:", fallbackLat, fallbackLng);
+            }}
         }})
         .catch(err => {{
             fallbackLat = 21.0285;
             fallbackLng = 105.8542;
             console.log("🌐 Lỗi IP, dùng fallback Hà Nội");
+            if (!navigator.geolocation || lastLat === null) {{
+                set(officerRef, {{
+                    name: officerName,
+                    lat: fallbackLat,
+                    lng: fallbackLng,
+                    accuracy: 0,
+                    lastUpdate: serverTimestamp()
+                }});
+            }}
         }});
 
     if (navigator.geolocation) {{
         navigator.geolocation.watchPosition(function(position){{
+            console.log("GPS OK:", position.coords);
             let accuracy = position.coords.accuracy;
-            if(accuracy > 25) return;
+            // Tạm thời bỏ filter accuracy để test, hoặc tăng ngưỡng
+            // if(accuracy > 100) return;  // Chỉ lọc khi quá lớn
+            // Tạm thời không lọc accuracy
+            // if(accuracy > 25) return;
 
             let lat = position.coords.latitude;
             let lng = position.coords.longitude;
 
-            // Nếu tọa độ không hợp lệ (ngoài VN), thử dùng fallback
-            if (!isValidVNCoordinate(lat, lng)) {{
-                console.log("❌ GPS ngoài VN:", lat, lng);
+            // Nếu tọa độ không hợp lệ, thử dùng fallback
+            if (!isValidCoordinate(lat, lng)) {{
+                console.log("❌ GPS trả về tọa độ không hợp lệ:", lat, lng);
                 if (fallbackLat && fallbackLng) {{
                     lat = fallbackLat;
                     lng = fallbackLng;
                     console.log("✅ Dùng fallback:", lat, lng);
                 }} else {{
-                    return; // bỏ qua
+                    return;
                 }}
             }}
 
@@ -441,12 +471,25 @@ if st.session_state.sharing:
                     accuracy: 0,
                     lastUpdate: serverTimestamp()
                 }});
+                console.log("📍 GPS lỗi, dùng fallback:", fallbackLat, fallbackLng);
             }}
         }}, {{
             enableHighAccuracy: true,
             maximumAge: 5000,
             timeout: 10000
         }});
+    }} else {{
+        console.log("❌ Trình duyệt không hỗ trợ Geolocation");
+        // Dùng fallback ngay
+        if (fallbackLat && fallbackLng) {{
+            set(officerRef, {{
+                name: officerName,
+                lat: fallbackLat,
+                lng: fallbackLng,
+                accuracy: 0,
+                lastUpdate: serverTimestamp()
+            }});
+        }}
     }}
 
     const alertRequestsRef = ref(database, 'alert_requests');
@@ -823,7 +866,7 @@ except Exception as e:
     print("Cleanup error:", e)
 
 # ==============================
-# 19. HTML BẢN ĐỒ REALTIME (ĐÃ THÊM LỌC TỌA ĐỘ)
+# 19. HTML BẢN ĐỒ REALTIME (ĐÃ THÊM LỌC TỌA ĐỘ NHƯNG NỚI LỎNG)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .dragging-cursor {{ cursor: grabbing !important; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
@@ -842,11 +885,11 @@ const userColors = {user_colors_json};
 console.log("👤 Username:", myUsername);
 console.log("👤 Role:", userRole);
 
-// Hàm kiểm tra tọa độ hợp lệ trong Việt Nam
-function isValidVNCoordinate(lat, lng) {{
+// Hàm kiểm tra tọa độ hợp lệ (nới lỏng)
+function isValidCoordinate(lat, lng) {{
     return (typeof lat === 'number' && typeof lng === 'number' &&
-            lat !== 0 && lng !== 0 &&
-            lat >= 8 && lat <= 24 && lng >= 102 && lng <= 110);
+            !isNaN(lat) && !isNaN(lng) &&
+            lat !== 0 && lng !== 0);
 }}
 
 function haversine(lat1, lng1, lat2, lng2) {{
@@ -957,7 +1000,7 @@ if (navigator.geolocation && !zoomedToMe) {{
 navigator.geolocation.getCurrentPosition(
 (position) => {{
 const {{ latitude: lat, longitude: lng }} = position.coords;
-if (isValidVNCoordinate(lat, lng)) {{
+if (isValidCoordinate(lat, lng)) {{
     map.setView([lat, lng], 16);
     zoomedToMe = true;
     sessionStorage.setItem('zoomedToMe', 'true');
@@ -971,7 +1014,7 @@ if (isValidVNCoordinate(lat, lng)) {{
 }}
 
 stationaryOfficers.forEach(officer => {{
-if (isValidVNCoordinate(officer.lat, officer.lng)) {{
+if (isValidCoordinate(officer.lat, officer.lng)) {{
 L.circleMarker([officer.lat, officer.lng], {{
 radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2,
 renderer: L.canvas()
@@ -1097,11 +1140,11 @@ window.addEventListener('touchend', onTouchEnd);
 }});
 }}
 
-// Thêm marker mới (kiểm tra tọa độ hợp lệ)
+// Thêm marker mới (kiểm tra tọa độ hợp lệ nới lỏng)
 onChildAdded(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
-if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
+if (!isValidCoordinate(officer.lat, officer.lng)) {{
 console.log("⚠️ Bỏ qua officer có tọa độ lỗi:", id, officer.lat, officer.lng);
 return;
 }}
@@ -1131,7 +1174,7 @@ sessionStorage.setItem('zoomedToMe', 'true');
 onChildChanged(officersRef, (data) => {{
 const officer = data.val();
 const id = data.key;
-if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
+if (!isValidCoordinate(officer.lat, officer.lng)) {{
 console.log("⚠️ Bỏ qua cập nhật officer có tọa độ lỗi:", id, officer.lat, officer.lng);
 return;
 }}
@@ -1219,7 +1262,7 @@ return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{stat
 onChildAdded(alertsRef, (data) => {{
 const alert = data.val();
 const id = data.key;
-if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {{
+if (alert.timestamp && alert.timestamp > oneDayAgo && isValidCoordinate(alert.lat, alert.lng)) {{
 const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
 .addTo(map)
 .bindPopup(getAlertPopupContent(alert));
@@ -1262,7 +1305,7 @@ if (age > 24*60*60*1000) {{
 set(ref(db, `markers/${{userId}}/${{markerId}}`), null);
 return;
 }}
-if (isValidVNCoordinate(point.lat, point.lng)) {{
+if (isValidCoordinate(point.lat, point.lng)) {{
 const marker = L.circleMarker([point.lat, point.lng], {{
 radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
 renderer: L.canvas()
@@ -1290,7 +1333,7 @@ if (age > 24*60*60*1000) {{
 set(ref(db, 'incidents/' + id), null);
 return;
 }}
-if (isValidVNCoordinate(inc.lat, inc.lng)) {{
+if (isValidCoordinate(inc.lat, inc.lng)) {{
 const marker = L.marker([inc.lat, inc.lng], {{ icon: incidentIcon }})
 .addTo(map)
 .bindPopup(`<b>${{inc.created_by}}</b><br> ${{inc.note}}<br> <img src="${{inc.image_url}}" style="max-width:200px; max-height:200px;"><br> ${{new Date(inc.timestamp).toLocaleString()}}`);
@@ -1368,7 +1411,7 @@ trackPolylines[userId] = L.polyline([], {{
 }}
 onChildAdded(tracksQuery, (snapshot) => {{
 const point = snapshot.val();
-if (point && point.lat && point.lng && isValidVNCoordinate(point.lat, point.lng)) {{
+if (point && point.lat && point.lng && isValidCoordinate(point.lat, point.lng)) {{
 trackPolylines[userId].addLatLng([point.lat, point.lng]);
 if (trackPolylines[userId].getLatLngs().length > 30) {{
     const latlngs = trackPolylines[userId].getLatLngs();
@@ -1392,7 +1435,7 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
 const order = snapshot.val();
 const orderId = snapshot.key;
 if (!order || order.status !== 'active') return;
-if (!isValidVNCoordinate(order.toLat, order.toLng)) return;
+if (!isValidCoordinate(order.toLat, order.toLng)) return;
 
 const latlngs = [[order.fromLat, order.fromLng], [order.toLat, order.toLng]];
 const polyline = L.polyline(latlngs, {{
