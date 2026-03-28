@@ -626,7 +626,6 @@ with st.sidebar.expander("📍 Đánh dấu điểm"):
         else:
             st.sidebar.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
 
-# THÊM: Commander có thể xóa toàn bộ ghi chú
 if user_role == "commander":
     with st.sidebar.expander("🗑️ Xóa ghi chú (toàn bộ)"):
         if st.button("⚠️ Xóa tất cả ghi chú", help="Xóa toàn bộ markers của tất cả người dùng"):
@@ -852,10 +851,36 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 20. MAP HTML (ĐÃ SỬA MOBILE)
+# 20. MAP HTML (ĐÃ SỬA MOBILE + CHẶN XUNG ĐỘT HOLD)
 # ==============================
 map_html = f"""
-<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} </style> <body> {order_js} <div id="map"></div> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
+<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> 
+<link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> 
+<script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> 
+<script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> 
+<style> 
+    #map {{ height: 600px; width: 100%; }} 
+    .leaflet-container {{ will-change: transform; }} 
+    .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} 
+    .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} 
+    @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} 
+    .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} 
+    .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} 
+    .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} 
+    /* CHẶN BÔI ĐEN SAFARI */
+    * {{
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+    }}
+</style> 
+<body> {order_js} <div id="map"></div> 
+<script type="module"> 
+import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; 
+import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
+import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 
 const firebaseConfig = {json.dumps(firebase_config)};
 const app = initializeApp(firebaseConfig);
@@ -945,6 +970,7 @@ let selectedOfficerName = null;
 let tempInfoControl = null;
 let selectionClickHandler = null;
 let hasSelected = false;  // chống double tap
+let holdTimer = null;     // timer cho giữ 5s
 
 const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
 alertSound.preload = "auto";
@@ -1007,7 +1033,7 @@ function activateSelectionMode(officerId, officerName) {{
     infoControl.onAdd = () => {{
         const div = L.DomUtil.create('div', 'selection-info');
         div.innerHTML = `
-            <span>📍 Chạm vào bản đồ để chọn điểm cho <b>${{officerName}}</b></span>
+            <span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span>
             <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
         `;
         div.style.cursor = 'default';
@@ -1028,63 +1054,58 @@ function activateSelectionMode(officerId, officerName) {{
 
     map.getContainer().style.cursor = 'crosshair';
 
-    const handleSelect = (e) => {{
-        if (hasSelected) return;
-        hasSelected = true;
-        const endLat = e.latlng.lat;
-        const endLng = e.latlng.lng;
-        const startMarker = officerMarkers[selectedOfficerId];
-        if (startMarker) {{
-            const startLatLng = startMarker.getLatLng();
-            const orderData = {{
-                officerId: selectedOfficerId,
-                fromLat: startLatLng.lat,
-                fromLng: startLatLng.lng,
-                toLat: endLat,
-                toLng: endLng,
-                commanderName: myName,
-                commanderId: myUsername,
-                timestamp: Date.now(),
-                status: 'active'
-            }};
-            push(ref(db, 'move_orders'), orderData);
-            
-            // Phản hồi trực quan
-            const marker = L.marker([endLat, endLng]).addTo(map);
-            marker.bindPopup("📍 Đã chọn điểm đến").openPopup();
-            setTimeout(() => map.removeLayer(marker), 5000);
-            
-            const line = L.polyline([[startLatLng.lat, startLatLng.lng], [endLat, endLng]], {{
-                color: '#ff8800', weight: 4, dashArray: '5, 10'
-            }}).addTo(map);
-            if (line.arrowheads) line.arrowheads({{ size: '12px', color: '#ff8800' }});
-            setTimeout(() => map.removeLayer(line), 5000);
-            
-            map.flyTo([endLat, endLng], 18);
-            
-            if (navigator.vibrate) navigator.vibrate(100);
-        }}
-        deactivateSelectionMode();
-    }};
-    
-    selectionClickHandler = handleSelect;
-    map.on('click', selectionClickHandler);
-    map.on('touchend', selectionClickHandler);  // hỗ trợ mobile
+    // === CƠ CHẾ GIỮ 5 GIÂY ===
+    map.on('touchstart', (e) => {{
+        if (!selectionMode || hasSelected) return;
+        const touch = e.originalEvent.touches[0];
+        const latlng = map.mouseEventToLatLng(touch);
+        holdTimer = setTimeout(() => {{
+            if (hasSelected) return;
+            hasSelected = true;
+            const endLat = latlng.lat;
+            const endLng = latlng.lng;
+            const startMarker = officerMarkers[selectedOfficerId];
+            if (startMarker) {{
+                const startLatLng = startMarker.getLatLng();
+                const orderData = {{
+                    officerId: selectedOfficerId,
+                    fromLat: startLatLng.lat,
+                    fromLng: startLatLng.lng,
+                    toLat: endLat,
+                    toLng: endLng,
+                    commanderName: myName,
+                    commanderId: myUsername,
+                    timestamp: Date.now(),
+                    status: 'active'
+                }};
+                push(ref(db, 'move_orders'), orderData);
+                // feedback
+                const marker = L.marker([endLat, endLng]).addTo(map);
+                marker.bindPopup("📍 Đã chọn điểm (giữ 5s)").openPopup();
+                setTimeout(() => map.removeLayer(marker), 5000);
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            }}
+            deactivateSelectionMode();
+        }}, 5000); // 5 giây
+    }});
+    map.on('touchend', () => {{
+        clearTimeout(holdTimer);
+    }});
+    map.on('touchcancel', () => {{
+        clearTimeout(holdTimer);
+    }});
 }}
 
 function deactivateSelectionMode() {{
     if (!selectionMode) return;
     if (tempInfoControl) map.removeControl(tempInfoControl);
-    if (selectionClickHandler) {{
-        map.off('click', selectionClickHandler);
-        map.off('touchend', selectionClickHandler);
-    }}
     map.getContainer().style.cursor = '';
+    // xóa timer nếu còn
+    if (holdTimer) clearTimeout(holdTimer);
     selectionMode = false;
     selectedOfficerId = null;
     selectedOfficerName = null;
     tempInfoControl = null;
-    selectionClickHandler = null;
     hasSelected = false;
 }}
 
@@ -1277,18 +1298,19 @@ onChildRemoved(incidentsRef, (data) => {{
     }}
 }});
 
-// Ghi chú touch cho officer
+// === GHI CHÚ (GIỮ 2 GIÂY) CHỈ KHI KHÔNG Ở CHẾ ĐỘ CHỌN LỆNH ===
 if (userRole !== 'commander') {{
-    let pressTimer;
+    let pressTimerMarker = null;
     map.on('touchstart', (e) => {{
-        if (!e.originalEvent.touches || e.originalEvent.touches.length === 0) return;
+        // Nếu đang ở chế độ ra lệnh thì KHÔNG tạo ghi chú
+        if (selectionMode) return;
         const touch = e.originalEvent.touches[0];
         const latlng = map.mouseEventToLatLng(touch);
-        pressTimer = setTimeout(() => {{
+        pressTimerMarker = setTimeout(() => {{
             const note = prompt("Nhập ghi chú cho điểm này:");
             if (note && note.trim()) {{
-                push(ref(db, 'markers/{username}'), {{
-                    created_by: "{name}",
+                push(ref(db, 'markers/' + myUsername), {{
+                    created_by: myName,
                     lat: latlng.lat,
                     lng: latlng.lng,
                     note: note,
@@ -1297,15 +1319,16 @@ if (userRole !== 'commander') {{
             }}
         }}, 2000);
     }});
-    map.on('touchend', () => clearTimeout(pressTimer));
-    map.on('touchcancel', () => clearTimeout(pressTimer));
+    map.on('touchend', () => clearTimeout(pressTimerMarker));
+    map.on('touchcancel', () => clearTimeout(pressTimerMarker));
 }}
 map.on('contextmenu', (e) => {{
+    if (selectionMode) return;  // chặn khi đang chọn lệnh
     e.originalEvent.preventDefault();
     const note = prompt("Nhập ghi chú cho điểm này:");
     if (note && note.trim()) {{
-        push(ref(db, 'markers/{username}'), {{
-            created_by: "{name}",
+        push(ref(db, 'markers/' + myUsername), {{
+            created_by: myName,
             lat: e.latlng.lat,
             lng: e.latlng.lng,
             note: note,
@@ -1542,7 +1565,7 @@ with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
 # ==============================
 if user_role == "commander" and officers:
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🚶 Ra lệnh di chuyển (chạm vào map)")
+    st.sidebar.subheader("🚶 Ra lệnh di chuyển (giữ 5 giây trên map)")
     officer_options = {uid: info['name'] for uid, info in officers.items() if uid != username}
     if officer_options:
         selected_officer = st.sidebar.selectbox(
@@ -1550,7 +1573,7 @@ if user_role == "commander" and officers:
             options=list(officer_options.keys()),
             format_func=lambda x: officer_options[x]
         )
-        if st.sidebar.button("📍 Chọn điểm đến trên bản đồ"):
+        if st.sidebar.button("📍 Bắt đầu chọn điểm đến"):
             st.session_state['order_officer_id'] = selected_officer
             st.session_state['order_officer_name'] = officer_options[selected_officer]
             st.rerun()
