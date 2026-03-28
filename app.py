@@ -38,13 +38,12 @@ def is_valid_coordinate(lat, lng):
     try:
         lat = float(lat)
         lng = float(lng)
-        # Tạm bỏ giới hạn VN để test, sau có thể bật lại
         return True
     except:
         return False
 
 # ==============================
-# 1. HÀM UPLOAD ẢNH LÊN IMGBB
+# 1. UPLOAD ẢNH
 # ==============================
 def upload_to_imgbb(image_file, api_key):
     try:
@@ -55,8 +54,7 @@ def upload_to_imgbb(image_file, api_key):
         data = response.json()
         if data.get("success"):
             return data["data"]["url"], None
-        else:
-            return None, data.get("error", {}).get("message", "Lỗi không xác định")
+        return None, data.get("error", {}).get("message", "Lỗi không xác định")
     except Exception as e:
         return None, str(e)
 
@@ -68,7 +66,7 @@ firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
 
 # ==============================
-# 3. AUTHENTICATION (từ Firebase)
+# 3. AUTHENTICATION
 # ==============================
 def load_credentials_from_firebase():
     try:
@@ -140,7 +138,7 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. GIAO DIỆN ĐĂNG NHẬP
+# 4. ĐĂNG NHẬP
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 st.title("🚔 Hệ thống theo dõi và phối hợp tuần tra")
@@ -161,7 +159,7 @@ authenticator.logout("Đăng xuất", "sidebar")
 st.sidebar.success(f"Xin chào {name}")
 
 # ==============================
-# 5. LẤY THÔNG TIN ROLE VÀ MÀU SẮC
+# 5. THÔNG TIN USER
 # ==============================
 user_role = config["credentials"]["usernames"][username].get("role", "officer")
 user_color = config["credentials"]["usernames"][username].get("color", "#0066cc")
@@ -184,7 +182,7 @@ db.child("users").child(username).set({
 })
 
 # ==============================
-# 6. STATE CHIA SẺ VỊ TRÍ
+# 6. CHIA SẺ VỊ TRÍ
 # ==============================
 if "sharing" not in st.session_state:
     st.session_state.sharing = False
@@ -202,7 +200,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. HÀM TÌM CÁN BỘ GẦN NHẤT
+# 7. TÌM CÁN BỘ GẦN NHẤT
 # ==============================
 def find_nearest_officers(lat, lng, limit=3):
     officers = db.child("officers").get().val()
@@ -217,7 +215,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. JAVASCRIPT LẤY GPS (DÙNG update THAY vì set)
+# 8. GPS SCRIPT (giữ nguyên)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -461,7 +459,7 @@ if st.session_state.sharing:
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
-# 9. HÀM GỬI THÔNG BÁO FCM
+# 9. FCM
 # ==============================
 def send_fcm_notification(title, body, target_token, server_key):
     url = "https://fcm.googleapis.com/fcm/send"
@@ -485,7 +483,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 10. CLEANUP DỮ LIỆU CŨ
+# 10. CLEANUP
 # ==============================
 def cleanup_old_data():
     try:
@@ -551,7 +549,7 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 11. PHÂN TÍCH CÁN BỘ ĐỨNG YÊN
+# 11. STATIONARY OFFICERS
 # ==============================
 def detect_stationary_officers():
     try:
@@ -627,6 +625,16 @@ with st.sidebar.expander("📍 Đánh dấu điểm"):
             st.sidebar.success("Đã thêm điểm")
         else:
             st.sidebar.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
+
+# THÊM: Commander có thể xóa toàn bộ ghi chú
+if user_role == "commander":
+    with st.sidebar.expander("🗑️ Xóa ghi chú (toàn bộ)"):
+        if st.button("⚠️ Xóa tất cả ghi chú", help="Xóa toàn bộ markers của tất cả người dùng"):
+            try:
+                db.child("markers").remove()
+                st.sidebar.success("Đã xóa toàn bộ ghi chú!")
+            except Exception as e:
+                st.sidebar.error(f"Lỗi xóa: {e}")
 
 with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
     uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
@@ -734,7 +742,7 @@ if user_role == "admin":
             st.sidebar.info("Không có user nào")
 
 # ==============================
-# 15. HÀM LOAD DỮ LIỆU
+# 15. LOAD DỮ LIỆU
 # ==============================
 @st.cache_data(ttl=5)
 def load_officers():
@@ -778,12 +786,12 @@ def load_incidents():
         return {}
 
 # ==============================
-# 16. TỰ ĐỘNG REFRESH
+# 16. AUTO REFRESH
 # ==============================
 st_autorefresh(interval=10000, key="auto_refresh")
 
 # ==============================
-# 17. CHECKBOX HIỂN THỊ TRACK
+# 17. CHECKBOX TRACK
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🗺️ Lịch sử di chuyển")
@@ -803,7 +811,7 @@ if officers:
         st.session_state.show_tracks[uid] = checked
 
 # ==============================
-# 18. CHUẨN BỊ DỮ LIỆU CHO MAP
+# 18. CHUẨN BỊ MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -814,7 +822,7 @@ stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
 user_role_json = json.dumps(user_role)
 
-# Xóa dữ liệu cũ bị lỗi
+# Xóa officer lỗi
 try:
     officers_old = db.child("officers").get().val()
     if officers_old:
@@ -826,7 +834,7 @@ except Exception as e:
     print("Cleanup error:", e)
 
 # ==============================
-# 19. DROPDOWN RA LỆNH CHO COMMANDER (Python part)
+# 19. ORDER JS
 # ==============================
 order_js = ""
 if user_role == "commander" and st.session_state.get('order_officer_id'):
@@ -844,7 +852,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 20. HTML BẢN ĐỒ (ĐÃ SỬA: SELECTION MODE CÓ HỦY)
+# 20. MAP HTML (ĐÃ SỬA MOBILE)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} </style> <body> {order_js} <div id="map"></div> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
@@ -936,6 +944,7 @@ let selectedOfficerId = null;
 let selectedOfficerName = null;
 let tempInfoControl = null;
 let selectionClickHandler = null;
+let hasSelected = false;  // chống double tap
 
 const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
 alertSound.preload = "auto";
@@ -992,13 +1001,13 @@ function activateSelectionMode(officerId, officerName) {{
     selectionMode = true;
     selectedOfficerId = officerId;
     selectedOfficerName = officerName;
+    hasSelected = false;
 
-    // Hiển thị control với nút Hủy
     const infoControl = L.control({{ position: 'topright' }});
     infoControl.onAdd = () => {{
         const div = L.DomUtil.create('div', 'selection-info');
         div.innerHTML = `
-            <span>📍 Đang chọn điểm đến cho <b>${{officerName}}</b></span>
+            <span>📍 Chạm vào bản đồ để chọn điểm cho <b>${{officerName}}</b></span>
             <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
         `;
         div.style.cursor = 'default';
@@ -1008,7 +1017,6 @@ function activateSelectionMode(officerId, officerName) {{
     infoControl.addTo(map);
     tempInfoControl = infoControl;
 
-    // Gán sự kiện click vào nút Hủy
     setTimeout(() => {{
         const cancelBtn = document.getElementById('cancel-order-btn');
         if (cancelBtn) {{
@@ -1018,11 +1026,11 @@ function activateSelectionMode(officerId, officerName) {{
         }}
     }}, 100);
 
-    // Đổi con trỏ
     map.getContainer().style.cursor = 'crosshair';
 
-    // Lắng nghe click trên map
-    selectionClickHandler = (e) => {{
+    const handleSelect = (e) => {{
+        if (hasSelected) return;
+        hasSelected = true;
         const endLat = e.latlng.lat;
         const endLng = e.latlng.lng;
         const startMarker = officerMarkers[selectedOfficerId];
@@ -1040,31 +1048,47 @@ function activateSelectionMode(officerId, officerName) {{
                 status: 'active'
             }};
             push(ref(db, 'move_orders'), orderData);
-            // Vẽ tạm đường dẫn
+            
+            // Phản hồi trực quan
+            const marker = L.marker([endLat, endLng]).addTo(map);
+            marker.bindPopup("📍 Đã chọn điểm đến").openPopup();
+            setTimeout(() => map.removeLayer(marker), 5000);
+            
             const line = L.polyline([[startLatLng.lat, startLatLng.lng], [endLat, endLng]], {{
                 color: '#ff8800', weight: 4, dashArray: '5, 10'
             }}).addTo(map);
             if (line.arrowheads) line.arrowheads({{ size: '12px', color: '#ff8800' }});
             setTimeout(() => map.removeLayer(line), 5000);
+            
+            map.flyTo([endLat, endLng], 18);
+            
+            if (navigator.vibrate) navigator.vibrate(100);
         }}
         deactivateSelectionMode();
     }};
+    
+    selectionClickHandler = handleSelect;
     map.on('click', selectionClickHandler);
+    map.on('touchend', selectionClickHandler);  // hỗ trợ mobile
 }}
 
 function deactivateSelectionMode() {{
     if (!selectionMode) return;
     if (tempInfoControl) map.removeControl(tempInfoControl);
-    if (selectionClickHandler) map.off('click', selectionClickHandler);
+    if (selectionClickHandler) {{
+        map.off('click', selectionClickHandler);
+        map.off('touchend', selectionClickHandler);
+    }}
     map.getContainer().style.cursor = '';
     selectionMode = false;
     selectedOfficerId = null;
     selectedOfficerName = null;
     tempInfoControl = null;
     selectionClickHandler = null;
+    hasSelected = false;
 }}
 
-// Thêm marker officer (popup vẫn giữ nhưng không dùng nữa)
+// Thêm marker officer
 onChildAdded(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
@@ -1093,6 +1117,7 @@ onChildAdded(officersRef, (data) => {{
     }}
 }});
 
+// Cập nhật marker
 onChildChanged(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
@@ -1125,7 +1150,7 @@ onChildRemoved(officersRef, (data) => {{
     }}
 }});
 
-// Online/offline detection
+// Online status
 const OFFLINE_TIMEOUT = 60000;
 function updateOnlineStatus() {{
     const now = Date.now();
@@ -1252,7 +1277,7 @@ onChildRemoved(incidentsRef, (data) => {{
     }}
 }});
 
-// Ghi chú bằng touch (chỉ cho officer)
+// Ghi chú touch cho officer
 if (userRole !== 'commander') {{
     let pressTimer;
     map.on('touchstart', (e) => {{
@@ -1289,7 +1314,7 @@ map.on('contextmenu', (e) => {{
     }}
 }});
 
-// Tracks - sửa listener: gỡ khi unchecked
+// Tracks
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1299,7 +1324,6 @@ function loadUserTracks(userId, userName, show) {{
             delete trackPolylines[userId];
         }}
         if (trackListeners[userId]) {{
-            // Gỡ listener nếu đã gắn
             off(tracksQuery);
             trackListeners[userId] = false;
         }}
@@ -1314,7 +1338,7 @@ function loadUserTracks(userId, userName, show) {{
             color: color, weight: 3, opacity: 0.7, smoothFactor: 5, noClip: true, renderer: L.canvas()
         }}).addTo(map);
     }}
-    const listener = onChildAdded(tracksQuery, (snapshot) => {{
+    onChildAdded(tracksQuery, (snapshot) => {{
         const point = snapshot.val();
         if (point && point.lat && point.lng && isValidVNCoordinate(point.lat, point.lng)) {{
             trackPolylines[userId].addLatLng([point.lat, point.lng]);
@@ -1325,8 +1349,6 @@ function loadUserTracks(userId, userName, show) {{
             }}
         }}
     }});
-    // Lưu listener để có thể off sau (không cần thiết vì onChildAdded không trả về listener, nhưng ta giữ tham chiếu)
-    trackListeners[userId + '_listener'] = listener;
 }}
 onValue(officersRef, (snapshot) => {{
     const officers = snapshot.val() || {{}};
@@ -1335,7 +1357,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// Lệnh di chuyển
+// Move orders
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1393,14 +1415,19 @@ onValue(officersRef, (snapshot) => {{
     if (Object.keys(officers).length > 1) zoomToAllOfficers();
 }});
 
-// Xử lý lệnh pending từ sidebar
+// Xử lý pending order (chờ marker load)
 if (window.pendingOrder && window.pendingOrder.officerId) {{
-    activateSelectionMode(window.pendingOrder.officerId, window.pendingOrder.officerName);
+    const checkInterval = setInterval(() => {{
+        if (officerMarkers[window.pendingOrder.officerId]) {{
+            clearInterval(checkInterval);
+            activateSelectionMode(window.pendingOrder.officerId, window.pendingOrder.officerName);
+        }}
+    }}, 200);
 }}
 </script> </body> </html> """
 
 # ==============================
-# 21. TABS: BẢN ĐỒ VÀ CHAT
+# 21. TABS
 # ==============================
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
@@ -1441,7 +1468,6 @@ with tab2:
     else:
         st.info("Chưa có tin nhắn nào.")
 
-    # Chat rate limit
     if 'last_chat_time' not in st.session_state:
         st.session_state.last_chat_time = 0
 
@@ -1512,7 +1538,7 @@ with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
         st.write("Chưa có ảnh hiện trường")
 
 # ==============================
-# 25. DROPDOWN RA LỆNH CHO COMMANDER (UI)
+# 25. DROPDOWN RA LỆNH CHO COMMANDER
 # ==============================
 if user_role == "commander" and officers:
     st.sidebar.markdown("---")
