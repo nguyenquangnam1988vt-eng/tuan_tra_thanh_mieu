@@ -66,7 +66,6 @@ def load_credentials_from_firebase():
     try:
         auth_data = db.child("auth_credentials").get().val()
 
-        # Nếu chưa có → tạo admin mặc định
         if not auth_data or "usernames" not in auth_data:
             default_password = "admin123"
             hashed = Hasher([default_password]).generate()[0]
@@ -86,7 +85,6 @@ def load_credentials_from_firebase():
             db.child("auth_credentials").set(default_admin)
             return default_admin
 
-        # Đảm bảo dữ liệu sạch
         usernames = auth_data.get("usernames", {})
 
         clean_users = {}
@@ -95,7 +93,6 @@ def load_credentials_from_firebase():
             if not isinstance(info, dict):
                 continue
 
-            # Đảm bảo đủ field
             clean_users[u] = {
                 "email": info.get("email", ""),
                 "name": info.get("name", u),
@@ -223,37 +220,32 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. JAVASCRIPT LẤY GPS
+# 8. JAVASCRIPT LẤY GPS (ĐÃ SỬA)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
     <script type="module">
-    import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-    import {{ 
-        getDatabase, 
-        ref, 
-        set, 
-        push, 
-        onDisconnect, 
-        onChildAdded,
-        serverTimestamp
-    }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+    // Đợi Firebase đã được khởi tạo từ map_html
+    if (!window.firebaseDatabase) {{
+        console.log("Firebase chưa sẵn sàng, thoát GPS script");
+        // Có thể retry sau 1 giây
+        setTimeout(() => location.reload(), 1000);
+        return;
+    }}
 
-    const firebaseConfig = {json.dumps(firebase_config)};
-    const app = initializeApp(firebaseConfig);
-    const database = getDatabase(app);
+    const database = window.firebaseDatabase;
+    const ref = window.firebaseRef;
+    const set = window.firebaseSet;
+    const push = window.firebasePush;
+    const onDisconnect = window.firebaseOnDisconnect;
+    const serverTimestamp = window.firebaseServerTimestamp;
 
     const username = "{username}";
     const officerName = "{name}";
 
     const officerRef = ref(database, 'officers/' + username);
-    set(officerRef, {{
-        name: officerName,
-        lat: 0,
-        lng: 0,
-        lastUpdate: serverTimestamp()
-    }});
 
+    // KHÔNG set vị trí 0,0 nữa – chỉ set khi có GPS thực
     let lastLat = null;
     let lastLng = null;
     let lastPoint = null;
@@ -336,6 +328,7 @@ if st.session_state.sharing:
             lng=stabilized.lng;
             const now=Date.now();
 
+            // GHI VỊ TRÍ THỰC
             set(officerRef, {{
                 name: officerName,
                 lat: lat,
@@ -747,7 +740,7 @@ stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
 
 # ==============================
-# 19. HTML BẢN ĐỒ REALTIME
+# 19. HTML BẢN ĐỒ REALTIME (ĐÃ SỬA - THÊM window FIREBASE GLOBAL)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} </style> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, set, push, onDisconnect, get }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
@@ -755,6 +748,14 @@ const firebaseConfig = {json.dumps(firebase_config)};
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const messaging = getMessaging(app);
+
+// EXPORT Firebase ra window để GPS script dùng chung
+window.firebaseDatabase = db;
+window.firebaseRef = ref;
+window.firebaseSet = set;
+window.firebasePush = push;
+window.firebaseOnDisconnect = onDisconnect;
+window.firebaseServerTimestamp = serverTimestamp;
 
 const myUsername = "{username}";
 const myName = "{name}";
@@ -900,9 +901,10 @@ const id = data.key;
 if (officerMarkers[id]) {{
 officerMarkers[id].setLatLng([officer.lat, officer.lng]);
 officerMarkers[id].setTooltipContent(officer.name);
-if (id === myUsername) {{
-map.setView([officer.lat, officer.lng], map.getZoom());
-}}
+// BONUS: KHÔNG tự động zoom về mình khi vị trí thay đổi
+// if (id === myUsername) {{
+//     map.setView([officer.lat, officer.lng], map.getZoom());
+// }}
 }}
 }});
 
