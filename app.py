@@ -38,7 +38,7 @@ def is_valid_coordinate(lat, lng):
     try:
         lat = float(lat)
         lng = float(lng)
-        # Tạm bỏ giới hạn VN để test
+        # Tạm bỏ giới hạn VN để test, sau có thể bật lại
         return True
     except:
         return False
@@ -217,7 +217,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. JAVASCRIPT LẤY GPS (SỬA set -> update)
+# 8. JAVASCRIPT LẤY GPS (DÙNG update THAY vì set)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -241,7 +241,6 @@ if st.session_state.sharing:
     const officerName = "{name}";
     const officerRef = ref(database, 'officers/' + username);
 
-    // Chỉ tạo node nếu chưa có, không set lại toàn bộ
     update(officerRef, {{
         name: officerName,
         lastUpdate: serverTimestamp()
@@ -305,7 +304,6 @@ if st.session_state.sharing:
         return {{lat,lng}};
     }}
 
-    // Fallback IP
     let fallbackLat = null;
     let fallbackLng = null;
     fetch("https://ipapi.co/json/")
@@ -347,7 +345,6 @@ if st.session_state.sharing:
                 }}
             }}
 
-            // Chỉ gửi khi di chuyển >3m
             let shouldSend = true;
             if(lastLat !== null){{
                 const dist = distance(lastLat, lastLng, lat, lng);
@@ -355,7 +352,6 @@ if st.session_state.sharing:
             }}
             if(!shouldSend) return;
 
-            // smoothing
             if(lastLat!==null){{
                 lat = lastLat*0.7 + lat*0.3;
                 lng = lastLng*0.7 + lng*0.3;
@@ -378,7 +374,6 @@ if st.session_state.sharing:
             lng = stabilized.lng;
             const now = Date.now();
 
-            // Dùng update thay vì set để tránh ghi đè
             update(officerRef, {{
                 name: officerName,
                 lat: lat,
@@ -417,7 +412,6 @@ if st.session_state.sharing:
                 }}
             }}
 
-            // Giảm 50% điểm track
             if(Math.random() < 0.5) {{
                 push(ref(database, 'tracks/'+username+'/points'), trackPoint);
             }}
@@ -457,7 +451,7 @@ if st.session_state.sharing:
                 status: req.status || "pending",
                 timestamp: serverTimestamp()
             }});
-            set(ref(database, 'alert_requests/' + data.key), null);
+            update(ref(database, 'alert_requests/' + data.key), null);
             onDisconnect(alertRef).remove();
         }}
     }});
@@ -491,7 +485,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 10. CLEANUP DỮ LIỆU CŨ (giữ nguyên)
+# 10. CLEANUP DỮ LIỆU CŨ
 # ==============================
 def cleanup_old_data():
     try:
@@ -584,7 +578,7 @@ def detect_stationary_officers():
         return []
 
 # ==============================
-# 12. SIDEBAR CÔNG CỤ (thêm dropdown ra lệnh)
+# 12. SIDEBAR CÔNG CỤ
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🚨 Công cụ phối hợp")
@@ -740,7 +734,7 @@ if user_role == "admin":
             st.sidebar.info("Không có user nào")
 
 # ==============================
-# 15. HÀM LOAD DỮ LIỆU (giữ nguyên)
+# 15. HÀM LOAD DỮ LIỆU
 # ==============================
 @st.cache_data(ttl=5)
 def load_officers():
@@ -850,10 +844,10 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 20. HTML BẢN ĐỒ (ĐÃ SỬA LỖI)
+# 20. HTML BẢN ĐỒ (ĐÃ SỬA: SELECTION MODE CÓ HỦY)
 # ==============================
 map_html = f"""
-<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .info {{ background: white; padding: 5px 10px; border-radius: 5px; border: 2px solid #ff8800; font-weight: bold; }} </style> <body> {order_js} <div id="map"></div> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
+<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> <link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> <style> #map {{ height: 600px; width: 100%; }} .leaflet-container {{ will-change: transform; }} .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} </style> <body> {order_js} <div id="map"></div> <script type="module"> import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 
 const firebaseConfig = {json.dumps(firebase_config)};
 const app = initializeApp(firebaseConfig);
@@ -937,8 +931,11 @@ const trackListeners = {{}};
 const moveOrderLines = {{}};
 
 let zoomedToMe = sessionStorage.getItem('zoomedToMe') === 'true';
-let selectedOfficerId = null;
 let selectionMode = false;
+let selectedOfficerId = null;
+let selectedOfficerName = null;
+let tempInfoControl = null;
+let selectionClickHandler = null;
 
 const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
 alertSound.preload = "auto";
@@ -990,22 +987,42 @@ function getOfficerColor(uid) {{
     return userColors[uid] || '#0066cc';
 }}
 
-function selectDestinationForOfficer(officerId, officerName) {{
+function activateSelectionMode(officerId, officerName) {{
     if (selectionMode) return;
     selectionMode = true;
     selectedOfficerId = officerId;
-    map.getContainer().style.cursor = 'crosshair';
-    
-    const info = L.control({{ position: 'bottomleft' }});
-    info.onAdd = () => {{
-        const div = L.DomUtil.create('div', 'info');
-        div.innerHTML = '🔴 Nhấp vào bản đồ để chọn điểm đến cho ' + officerName;
+    selectedOfficerName = officerName;
+
+    // Hiển thị control với nút Hủy
+    const infoControl = L.control({{ position: 'topright' }});
+    infoControl.onAdd = () => {{
+        const div = L.DomUtil.create('div', 'selection-info');
+        div.innerHTML = `
+            <span>📍 Đang chọn điểm đến cho <b>${{officerName}}</b></span>
+            <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
+        `;
+        div.style.cursor = 'default';
+        L.DomEvent.disableClickPropagation(div);
         return div;
     }};
-    info.addTo(map);
-    window.tempInfoControl = info;
-    
-    map.once('click', (e) => {{
+    infoControl.addTo(map);
+    tempInfoControl = infoControl;
+
+    // Gán sự kiện click vào nút Hủy
+    setTimeout(() => {{
+        const cancelBtn = document.getElementById('cancel-order-btn');
+        if (cancelBtn) {{
+            cancelBtn.onclick = () => {{
+                deactivateSelectionMode();
+            }};
+        }}
+    }}, 100);
+
+    // Đổi con trỏ
+    map.getContainer().style.cursor = 'crosshair';
+
+    // Lắng nghe click trên map
+    selectionClickHandler = (e) => {{
         const endLat = e.latlng.lat;
         const endLng = e.latlng.lng;
         const startMarker = officerMarkers[selectedOfficerId];
@@ -1023,19 +1040,31 @@ function selectDestinationForOfficer(officerId, officerName) {{
                 status: 'active'
             }};
             push(ref(db, 'move_orders'), orderData);
+            // Vẽ tạm đường dẫn
             const line = L.polyline([[startLatLng.lat, startLatLng.lng], [endLat, endLng]], {{
                 color: '#ff8800', weight: 4, dashArray: '5, 10'
             }}).addTo(map);
             if (line.arrowheads) line.arrowheads({{ size: '12px', color: '#ff8800' }});
             setTimeout(() => map.removeLayer(line), 5000);
         }}
-        selectionMode = false;
-        map.getContainer().style.cursor = '';
-        if (window.tempInfoControl) map.removeControl(window.tempInfoControl);
-    }});
+        deactivateSelectionMode();
+    }};
+    map.on('click', selectionClickHandler);
 }}
 
-// Xử lý thêm marker officer, có popup và pending order
+function deactivateSelectionMode() {{
+    if (!selectionMode) return;
+    if (tempInfoControl) map.removeControl(tempInfoControl);
+    if (selectionClickHandler) map.off('click', selectionClickHandler);
+    map.getContainer().style.cursor = '';
+    selectionMode = false;
+    selectedOfficerId = null;
+    selectedOfficerName = null;
+    tempInfoControl = null;
+    selectionClickHandler = null;
+}}
+
+// Thêm marker officer (popup vẫn giữ nhưng không dùng nữa)
 onChildAdded(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
@@ -1056,28 +1085,6 @@ onChildAdded(officersRef, (data) => {{
         permanent: true, direction: 'top', offset: [0, -8], className: 'officer-label'
     }});
     
-    // Popup cho commander (mobile không dùng nữa, nhưng vẫn giữ để fallback)
-    if (userRole === 'commander' && id !== myUsername) {{
-        marker.bindPopup(`
-            <div style="text-align:center;">
-                <b>${{officer.name}}</b><br>
-                <button id="order-btn-${{id}}" style="margin-top:5px; padding:5px 10px; background:#ff8800; color:white; border:none; border-radius:5px; font-size:14px;">
-                    🚶 Ra lệnh di chuyển
-                </button>
-            </div>
-        `, {{ autoClose: false }});
-        marker.on('popupopen', () => {{
-            const btn = document.getElementById(`order-btn-${{id}}`);
-            if (btn) {{
-                btn.onclick = (e) => {{
-                    e.stopPropagation();
-                    marker.closePopup();
-                    selectDestinationForOfficer(id, officer.name);
-                }};
-            }}
-        }});
-    }}
-    
     officerMarkers[id] = marker;
     if (id === myUsername && !zoomedToMe) {{
         map.setView([officer.lat, officer.lng], 16);
@@ -1086,7 +1093,6 @@ onChildAdded(officersRef, (data) => {{
     }}
 }});
 
-// Cập nhật marker mượt (không thay đổi)
 onChildChanged(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
@@ -1189,7 +1195,7 @@ onChildRemoved(alertsRef, (data) => {{
     }}
 }});
 
-// Markers và incidents (giữ nguyên)
+// Markers và incidents
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1283,7 +1289,7 @@ map.on('contextmenu', (e) => {{
     }}
 }});
 
-// Tracks - sửa lỗi listener không reset
+// Tracks - sửa listener: gỡ khi unchecked
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1292,9 +1298,9 @@ function loadUserTracks(userId, userName, show) {{
             map.removeLayer(trackPolylines[userId]);
             delete trackPolylines[userId];
         }}
-        // Reset listener flag
         if (trackListeners[userId]) {{
-            // Gỡ bỏ listener thực tế, nhưng với onChildAdded không dễ. Thay vào đó, ta sẽ dùng flag để không thêm mới.
+            // Gỡ listener nếu đã gắn
+            off(tracksQuery);
             trackListeners[userId] = false;
         }}
         return;
@@ -1308,7 +1314,7 @@ function loadUserTracks(userId, userName, show) {{
             color: color, weight: 3, opacity: 0.7, smoothFactor: 5, noClip: true, renderer: L.canvas()
         }}).addTo(map);
     }}
-    onChildAdded(tracksQuery, (snapshot) => {{
+    const listener = onChildAdded(tracksQuery, (snapshot) => {{
         const point = snapshot.val();
         if (point && point.lat && point.lng && isValidVNCoordinate(point.lat, point.lng)) {{
             trackPolylines[userId].addLatLng([point.lat, point.lng]);
@@ -1319,6 +1325,8 @@ function loadUserTracks(userId, userName, show) {{
             }}
         }}
     }});
+    // Lưu listener để có thể off sau (không cần thiết vì onChildAdded không trả về listener, nhưng ta giữ tham chiếu)
+    trackListeners[userId + '_listener'] = listener;
 }}
 onValue(officersRef, (snapshot) => {{
     const officers = snapshot.val() || {{}};
@@ -1387,7 +1395,7 @@ onValue(officersRef, (snapshot) => {{
 
 // Xử lý lệnh pending từ sidebar
 if (window.pendingOrder && window.pendingOrder.officerId) {{
-    selectDestinationForOfficer(window.pendingOrder.officerId, window.pendingOrder.officerName);
+    activateSelectionMode(window.pendingOrder.officerId, window.pendingOrder.officerName);
 }}
 </script> </body> </html> """
 
@@ -1403,49 +1411,52 @@ with tab2:
     st.subheader("💬 Chat nội bộ")
     st_autorefresh(interval=3000, key="chat_refresh")
 
-    # Hạn chế spam chat: chỉ cho phép gửi 1 tin mỗi 2 giây
-    last_chat_time = st.session_state.get("last_chat_time", 0)
-    if time.time() - last_chat_time < 2:
-        st.warning("Vui lòng chờ 2 giây trước khi gửi tin nhắn tiếp theo.")
+    def cleanup_old_messages():
+        msgs = db.child("messages").get().val()
+        if not msgs: return
+        now = int(time.time() * 1000)
+        for key, msg in msgs.items():
+            if now - msg.get("timestamp", 0) > 24*3600*1000:
+                db.child("messages").child(key).remove()
+    cleanup_old_messages()
+
+    messages = db.child("messages").order_by_child("timestamp").limit_to_last(50).get()
+    if messages.val():
+        sorted_msgs = sorted(messages.val().items(), key=lambda x: x[1]["timestamp"])
+        for key, msg in sorted_msgs:
+            vn_time = datetime.fromtimestamp(
+                msg["timestamp"]/1000, tz=timezone(timedelta(hours=7))
+            ).strftime("%H:%M")
+            is_me = (msg["from"] == username)
+            align = "right" if is_me else "left"
+            bg_color = "#dcf8c6" if is_me else "#f1f0f0"
+            st.markdown(
+                f"<div style='display: flex; justify-content: {align}; margin:5px;'>"
+                f"<div style='background-color: {bg_color}; padding:8px 12px; border-radius:10px; max-width:70%;'>"
+                f"<b>{msg['name']}</b> {vn_time}<br>{msg['message']}"
+                f"</div></div>",
+                unsafe_allow_html=True
+            )
+        st.markdown("<script>window.scrollTo(0, document.body.scrollHeight);</script>", unsafe_allow_html=True)
     else:
-        def cleanup_old_messages():
-            msgs = db.child("messages").get().val()
-            if not msgs: return
-            now = int(time.time() * 1000)
-            for key, msg in msgs.items():
-                if now - msg.get("timestamp", 0) > 24*3600*1000:
-                    db.child("messages").child(key).remove()
-        cleanup_old_messages()
+        st.info("Chưa có tin nhắn nào.")
 
-        messages = db.child("messages").order_by_child("timestamp").limit_to_last(50).get()
-        if messages.val():
-            sorted_msgs = sorted(messages.val().items(), key=lambda x: x[1]["timestamp"])
-            for key, msg in sorted_msgs:
-                vn_time = datetime.fromtimestamp(
-                    msg["timestamp"]/1000, tz=timezone(timedelta(hours=7))
-                ).strftime("%H:%M")
-                is_me = (msg["from"] == username)
-                align = "right" if is_me else "left"
-                bg_color = "#dcf8c6" if is_me else "#f1f0f0"
-                st.markdown(
-                    f"<div style='display: flex; justify-content: {align}; margin:5px;'>"
-                    f"<div style='background-color: {bg_color}; padding:8px 12px; border-radius:10px; max-width:70%;'>"
-                    f"<b>{msg['name']}</b> {vn_time}<br>{msg['message']}"
-                    f"</div></div>",
-                    unsafe_allow_html=True
-                )
-            st.markdown("<script>window.scrollTo(0, document.body.scrollHeight);</script>", unsafe_allow_html=True)
-        else:
-            st.info("Chưa có tin nhắn nào.")
+    # Chat rate limit
+    if 'last_chat_time' not in st.session_state:
+        st.session_state.last_chat_time = 0
 
-        with st.form("chat_form", clear_on_submit=True):
-            col1, col2 = st.columns([5,1])
-            with col1:
-                message = st.text_input("Tin nhắn", placeholder="Nhập tin nhắn...", label_visibility="collapsed")
-            with col2:
-                sent = st.form_submit_button("Gửi")
-            if sent and message.strip():
-                st.session_state["last_chat_time"] = time.time()
+    with st.form("chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([5,1])
+        with col1:
+            message = st.text_input("Tin nhắn", placeholder="Nhập tin nhắn...", label_visibility="collapsed")
+        with col2:
+            sent = st.form_submit_button("Gửi")
+        if sent and message.strip():
+            now = time.time()
+            if now - st.session_state.last_chat_time < 2:
+                st.warning("Vui lòng chờ 2 giây trước khi gửi tin nhắn tiếp theo.")
+            else:
+                st.session_state.last_chat_time = now
                 chat_data = {
                     "from": username, "name": name, "message": message,
                     "timestamp": int(time.time() * 1000)
@@ -1503,7 +1514,6 @@ with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
 # ==============================
 # 25. DROPDOWN RA LỆNH CHO COMMANDER (UI)
 # ==============================
-# Đoạn này phải đặt sau khi load officers (đã có)
 if user_role == "commander" and officers:
     st.sidebar.markdown("---")
     st.sidebar.subheader("🚶 Ra lệnh di chuyển (chạm vào map)")
