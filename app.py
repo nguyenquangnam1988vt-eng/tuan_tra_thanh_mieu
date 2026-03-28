@@ -138,89 +138,60 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. ĐĂNG NHẬP
+# 4. CẤU HÌNH TRANG VÀ CSS MỚI
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
-# ===== CSS NÂNG CẤP =====
+# ===== CSS MỚI (nền sáng, sidebar đậm, button xanh) =====
 st.markdown("""
 <style>
-:root {
-    --primary: #ff8800;
-    --secondary: #1e293b;
-    --bg: #0f172a;
-    --card: #1e293b;
-    --text: #f1f5f9;
-    --accent: #ff5500;
-}
-
 /* ===== FONT ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
-    color: var(--text);
 }
 
-/* ===== MAIN BACKGROUND ===== */
+/* ===== BACKGROUND ===== */
 .stApp {
-    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    background: #f5f7fb;
 }
 
 /* ===== SIDEBAR ===== */
 section[data-testid="stSidebar"] {
-    background: rgba(15, 32, 39, 0.85);
-    backdrop-filter: blur(10px);
-    color: var(--text);
-    border-right: 1px solid rgba(255,255,255,0.1);
-}
-
-/* ===== SIDEBAR CARD ===== */
-.sidebar-card {
-    background: rgba(255,255,255,0.08);
-    backdrop-filter: blur(5px);
-    border-radius: 16px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    border: 1px solid rgba(255,255,255,0.1);
-    transition: all 0.2s;
-}
-.sidebar-card:hover {
-    background: rgba(255,255,255,0.12);
-    transform: translateY(-2px);
+    background: #1e293b;
+    color: white;
 }
 
 /* ===== BUTTON ===== */
 .stButton button {
-    border-radius: 12px;
-    background: linear-gradient(135deg, var(--primary), var(--accent));
+    border-radius: 10px;
+    background: #2563eb;
     color: white;
     font-weight: 600;
     border: none;
     padding: 8px 16px;
-    transition: all 0.3s ease;
+    transition: 0.2s;
 }
+
 .stButton button:hover {
-    transform: scale(1.02);
-    box-shadow: 0 0 12px rgba(255,136,0,0.4);
+    background: #1d4ed8;
 }
 
 /* ===== INPUT ===== */
 input, textarea {
-    border-radius: 10px !important;
-    background: rgba(255,255,255,0.1) !important;
-    border: 1px solid rgba(255,255,255,0.2) !important;
-    color: white !important;
-}
-input:focus, textarea:focus {
-    border-color: var(--primary) !important;
-    box-shadow: 0 0 5px var(--primary) !important;
+    border-radius: 8px !important;
+    border: 1px solid #ddd !important;
 }
 
 /* ===== TITLE ===== */
 h1, h2, h3 {
-    color: white;
-    font-weight: 600;
+    color: #1e293b;
+}
+
+/* ===== CARD STYLE ===== */
+.block-container {
+    padding-top: 2rem;
 }
 
 /* ===== SCROLL ===== */
@@ -228,16 +199,8 @@ h1, h2, h3 {
     width: 6px;
 }
 ::-webkit-scrollbar-thumb {
-    background: #888;
+    background: #ccc;
     border-radius: 3px;
-}
-
-/* ===== GLASS EFFECT ===== */
-.glass {
-    background: rgba(255,255,255,0.1);
-    backdrop-filter: blur(10px);
-    border-radius: 15px;
-    border: 1px solid rgba(255,255,255,0.2);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1601,7 +1564,6 @@ with tab2:
             align = "right" if is_me else "left"
             bg_color = "#dcf8c6" if is_me else "#f1f0f0"
             text_color = "black" if is_me else "#333"
-            # Avatar + bubble
             st.markdown(
                 f"""
                 <div style='display:flex; justify-content:{align}; margin:10px 0;'>
@@ -1612,7 +1574,7 @@ with tab2:
                                 {msg['message']}
                             </div>
                         {"</div>" if is_me else ""}
-                        <div style='width:36px; height:36px; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:white;'>
+                        <div style='width:36px; height:36px; background: #2563eb; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:white;'>
                             {avatar}
                         </div>
                         {"<div style='order:2;' " if not is_me else ""}</div>
