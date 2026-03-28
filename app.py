@@ -856,6 +856,7 @@ else:
 # ==============================
 # 20. MAP HTML (MapLibre GL JS) - ĐÃ SỬA LỖI TRẮNG
 # ==============================
+maptiler_key = st.secrets["maptiler_key"]
 map_html = f"""
 <!DOCTYPE html>
 <html>
@@ -972,7 +973,6 @@ onMessage(messaging, payload => {{
 }});
 
 // Khởi tạo bản đồ MapLibre sau khi DOM sẵn sàng
-maptiler_key = st.secrets["maptiler_key"]
 window.onload = () => {{
     let map = new maplibregl.Map({{
         container: 'map',
