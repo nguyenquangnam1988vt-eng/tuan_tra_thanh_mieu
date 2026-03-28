@@ -138,11 +138,158 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. ĐĂNG NHẬP
+# 4. CẤU HÌNH TRANG VÀ CSS
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
-st.title("🚔 Hệ thống theo dõi và phối hợp tuần tra")
 
+# ===== CSS NÂNG CẤP =====
+st.markdown("""
+<style>
+    /* Ẩn header, footer, menu */
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+    .stApp { margin-top: -60px; }
+
+    /* Top bar cố định */
+    .top-bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 60px;
+        background: rgba(0,0,0,0.85);
+        backdrop-filter: blur(10px);
+        color: white;
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 30px;
+        font-family: 'Inter', sans-serif;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    .top-bar .logo {
+        font-size: 1.4rem;
+        font-weight: bold;
+        letter-spacing: 1px;
+    }
+    .top-bar .user-info {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+    .top-bar button {
+        background: #ff5500;
+        border: none;
+        padding: 6px 15px;
+        border-radius: 20px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    /* Panel bên trái */
+    .panel {
+        background: rgba(0,0,0,0.75);
+        backdrop-filter: blur(12px);
+        border-radius: 20px;
+        padding: 20px;
+        color: white;
+        height: calc(100vh - 80px);
+        overflow-y: auto;
+        margin-top: 70px;
+        margin-left: 15px;
+        width: 320px;
+        z-index: 1000;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        font-family: 'Inter', sans-serif;
+    }
+    .panel h3 {
+        margin-top: 0;
+        border-left: 4px solid #ff8800;
+        padding-left: 10px;
+    }
+    .panel .stButton button {
+        width: 100%;
+        margin: 5px 0;
+        background: linear-gradient(135deg, #ff8800, #ff5500);
+        border: none;
+        border-radius: 12px;
+        padding: 8px;
+        font-weight: 600;
+    }
+    .panel .stButton button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 0 12px rgba(255,136,0,0.5);
+    }
+    .dashboard-item {
+        background: rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 10px;
+        margin: 10px 0;
+        text-align: center;
+    }
+    .chat-container {
+        background: rgba(0,0,0,0.6);
+        border-radius: 16px;
+        margin-top: 20px;
+        padding: 10px;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    .chat-message {
+        margin-bottom: 8px;
+        display: flex;
+    }
+    .chat-message.me {
+        justify-content: flex-end;
+    }
+    .chat-bubble {
+        max-width: 85%;
+        padding: 8px 12px;
+        border-radius: 18px;
+        font-size: 0.9rem;
+    }
+    .chat-bubble.me {
+        background: #ff8800;
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+    .chat-bubble.other {
+        background: #2c3e50;
+        color: white;
+        border-bottom-left-radius: 4px;
+    }
+
+    /* Map container */
+    .map-container {
+        position: fixed;
+        top: 60px;
+        right: 0;
+        bottom: 0;
+        left: 350px;
+        z-index: 1;
+    }
+    @media (max-width: 768px) {
+        .panel { width: 280px; margin-left: 5px; }
+        .map-container { left: 300px; }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ===== TOP BAR =====
+st.markdown(f"""
+<div class="top-bar">
+    <div class="logo">🚔 HỆ THỐNG TUẦN TRA CƠ ĐỘNG</div>
+    <div class="user-info">
+        <span>👤 {st.session_state.get('name', '')}</span>
+        <button onclick="document.querySelector('.stButton button').click()">Đăng xuất</button>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ===== ĐĂNG NHẬP =====
 authenticator.login(location="main")
 authentication_status = st.session_state.get("authentication_status")
 name = st.session_state.get("name")
@@ -155,8 +302,10 @@ elif authentication_status == None:
     st.warning("Vui lòng đăng nhập")
     st.stop()
 
-authenticator.logout("Đăng xuất", "sidebar")
-st.sidebar.success(f"Xin chào {name}")
+# Ẩn nút đăng xuất của authenticator (ta sẽ dùng nút custom)
+# Vẫn giữ logout trong sidebar để dễ xử lý session, nhưng ẩn sidebar
+st.sidebar.empty()
+authenticator.logout("Đăng xuất", "sidebar")  # vẫn cần để có session state
 
 # ==============================
 # 5. THÔNG TIN USER
@@ -187,20 +336,8 @@ db.child("users").child(username).set({
 if "sharing" not in st.session_state:
     st.session_state.sharing = False
 
-col1, col2 = st.columns([1, 5])
-with col1:
-    if not st.session_state.sharing:
-        if st.button("📡 Bắt đầu chia sẻ vị trí"):
-            st.session_state.sharing = True
-            st.rerun()
-    else:
-        if st.button("🛑 Dừng chia sẻ"):
-            db.child("officers").child(username).remove()
-            st.session_state.sharing = False
-            st.rerun()
-
 # ==============================
-# 7. TÌM CÁN BỘ GẦN NHẤT
+# 7. CÁC HÀM HỖ TRỢ
 # ==============================
 def find_nearest_officers(lat, lng, limit=3):
     officers = db.child("officers").get().val()
@@ -214,8 +351,119 @@ def find_nearest_officers(lat, lng, limit=3):
     distances.sort(key=lambda x: x[1])
     return [uid for uid, _ in distances[:limit]]
 
+def send_fcm_notification(title, body, target_token, server_key):
+    url = "https://fcm.googleapis.com/fcm/send"
+    headers = {
+        "Authorization": f"key={server_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "to": target_token,
+        "notification": {
+            "title": title,
+            "body": body,
+            "sound": "default"
+        }
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        return response.json()
+    except Exception as e:
+        print("FCM error:", e)
+        return None
+
 # ==============================
-# 8. GPS SCRIPT (giữ nguyên)
+# 8. CLEANUP
+# ==============================
+def cleanup_old_data():
+    try:
+        incidents = db.child("incidents").get().val()
+        if incidents:
+            now = int(time.time() * 1000)
+            for key, inc in incidents.items():
+                if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
+                    db.child("incidents").child(key).remove()
+    except Exception as e:
+        print("Cleanup error:", e)
+
+def cleanup_offline_officers():
+    try:
+        officers = db.child("officers").get().val()
+        if not officers:
+            return
+        now = int(time.time() * 1000)
+        limit = 30 * 60 * 1000
+        for uid, data in officers.items():
+            offline_at = data.get("offlineAt")
+            if offline_at and now - offline_at > limit:
+                db.child("officers").child(uid).remove()
+    except Exception as e:
+        print("Cleanup offline officers error:", e)
+
+def cleanup_old_tracks():
+    try:
+        tracks = db.child("tracks").get().val()
+        if not tracks:
+            return
+        now = int(time.time() * 1000)
+        limit = 24 * 3600 * 1000
+        for uid, data in tracks.items():
+            points = data.get("points")
+            if not points:
+                continue
+            for key, point in points.items():
+                if now - point.get("timestamp", 0) > limit:
+                    db.child("tracks").child(uid).child("points").child(key).remove()
+    except Exception as e:
+        print("Track cleanup error:", e)
+
+def limit_tracks():
+    try:
+        tracks = db.child("tracks").get().val()
+        if not tracks:
+            return
+        for uid, data in tracks.items():
+            points = data.get("points", {})
+            if len(points) > 500:
+                sorted_points = sorted(points.items(), key=lambda x: x[1].get("timestamp", 0))
+                for k, _ in sorted_points[:-500]:
+                    db.child("tracks").child(uid).child("points").child(k).remove()
+    except Exception as e:
+        print("Limit tracks error:", e)
+
+if "last_cleanup" not in st.session_state or time.time() - st.session_state.last_cleanup > 300:
+    cleanup_old_data()
+    cleanup_offline_officers()
+    cleanup_old_tracks()
+    limit_tracks()
+    st.session_state.last_cleanup = time.time()
+
+def detect_stationary_officers():
+    try:
+        officers = db.child("officers").get().val()
+        if not officers:
+            return []
+        now = int(time.time() * 1000)
+        threshold = 15 * 60 * 1000
+        stationary = []
+        for uid, data in officers.items():
+            if is_valid_coordinate(data.get("lat"), data.get("lng")):
+                last = data.get("lastUpdate")
+                if last and (now - int(last)) > threshold:
+                    stationary.append({
+                        "uid": uid,
+                        "name": data.get("name"),
+                        "lat": data["lat"],
+                        "lng": data["lng"],
+                        "lastUpdate": last
+                    })
+        return stationary
+    except Exception as e:
+        print("Stationary detection error:", e)
+        return []
+
+# ==============================
+# 9. GPS SCRIPT
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -459,289 +707,7 @@ if st.session_state.sharing:
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
-# 9. FCM
-# ==============================
-def send_fcm_notification(title, body, target_token, server_key):
-    url = "https://fcm.googleapis.com/fcm/send"
-    headers = {
-        "Authorization": f"key={server_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "to": target_token,
-        "notification": {
-            "title": title,
-            "body": body,
-            "sound": "default"
-        }
-    }
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        return response.json()
-    except Exception as e:
-        print("FCM error:", e)
-        return None
-
-# ==============================
-# 10. CLEANUP
-# ==============================
-def cleanup_old_data():
-    try:
-        incidents = db.child("incidents").get().val()
-        if incidents:
-            now = int(time.time() * 1000)
-            for key, inc in incidents.items():
-                if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
-                    db.child("incidents").child(key).remove()
-    except Exception as e:
-        print("Cleanup error:", e)
-
-def cleanup_offline_officers():
-    try:
-        officers = db.child("officers").get().val()
-        if not officers:
-            return
-        now = int(time.time() * 1000)
-        limit = 30 * 60 * 1000
-        for uid, data in officers.items():
-            offline_at = data.get("offlineAt")
-            if offline_at and now - offline_at > limit:
-                db.child("officers").child(uid).remove()
-    except Exception as e:
-        print("Cleanup offline officers error:", e)
-
-def cleanup_old_tracks():
-    try:
-        tracks = db.child("tracks").get().val()
-        if not tracks:
-            return
-        now = int(time.time() * 1000)
-        limit = 24 * 3600 * 1000
-        for uid, data in tracks.items():
-            points = data.get("points")
-            if not points:
-                continue
-            for key, point in points.items():
-                if now - point.get("timestamp", 0) > limit:
-                    db.child("tracks").child(uid).child("points").child(key).remove()
-    except Exception as e:
-        print("Track cleanup error:", e)
-
-def limit_tracks():
-    try:
-        tracks = db.child("tracks").get().val()
-        if not tracks:
-            return
-        for uid, data in tracks.items():
-            points = data.get("points", {})
-            if len(points) > 500:
-                sorted_points = sorted(points.items(), key=lambda x: x[1].get("timestamp", 0))
-                for k, _ in sorted_points[:-500]:
-                    db.child("tracks").child(uid).child("points").child(k).remove()
-    except Exception as e:
-        print("Limit tracks error:", e)
-
-if "last_cleanup" not in st.session_state or time.time() - st.session_state.last_cleanup > 300:
-    cleanup_old_data()
-    cleanup_offline_officers()
-    cleanup_old_tracks()
-    limit_tracks()
-    st.session_state.last_cleanup = time.time()
-
-# ==============================
-# 11. STATIONARY OFFICERS
-# ==============================
-def detect_stationary_officers():
-    try:
-        officers = db.child("officers").get().val()
-        if not officers:
-            return []
-        now = int(time.time() * 1000)
-        threshold = 15 * 60 * 1000
-        stationary = []
-        for uid, data in officers.items():
-            if is_valid_coordinate(data.get("lat"), data.get("lng")):
-                last = data.get("lastUpdate")
-                if last and (now - int(last)) > threshold:
-                    stationary.append({
-                        "uid": uid,
-                        "name": data.get("name"),
-                        "lat": data["lat"],
-                        "lng": data["lng"],
-                        "lastUpdate": last
-                    })
-        return stationary
-    except Exception as e:
-        print("Stationary detection error:", e)
-        return []
-
-# ==============================
-# 12. SIDEBAR CÔNG CỤ
-# ==============================
-st.sidebar.markdown("---")
-st.sidebar.subheader("🚨 Công cụ phối hợp")
-
-if st.sidebar.button("🚨 Gửi báo động"):
-    user_data = db.child("officers").child(username).get().val()
-    if user_data and is_valid_coordinate(user_data.get("lat"), user_data.get("lng")):
-        lat = user_data["lat"]
-        lng = user_data["lng"]
-        nearest = find_nearest_officers(lat, lng)
-        request_data = {
-            "username": username,
-            "name": name,
-            "lat": lat,
-            "lng": lng,
-            "assigned": nearest,
-            "status": "pending",
-            "timestamp": int(time.time() * 1000)
-        }
-        db.child("alert_requests").push(request_data)
-
-        server_key = st.secrets.get("fcm", {}).get("server_key", "")
-        if server_key:
-            tokens = db.child("fcm_tokens").get().val() or {}
-            for uid, token in tokens.items():
-                if uid != username:
-                    send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
-
-        st.sidebar.success("Đã gửi yêu cầu báo động")
-    else:
-        st.sidebar.error("Bạn chưa chia sẻ vị trí hợp lệ")
-
-with st.sidebar.expander("📍 Đánh dấu điểm"):
-    note = st.text_area("Ghi chú")
-    if st.button("Thêm điểm tại vị trí hiện tại"):
-        current = db.child("officers").child(username).get().val()
-        if current and is_valid_coordinate(current.get("lat"), current.get("lng")) and note.strip():
-            marker_data = {
-                "created_by": name,
-                "lat": current["lat"],
-                "lng": current["lng"],
-                "note": note,
-                "timestamp": int(time.time() * 1000),
-            }
-            db.child("markers").child(username).push(marker_data)
-            st.sidebar.success("Đã thêm điểm")
-        else:
-            st.sidebar.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
-
-if user_role == "commander":
-    with st.sidebar.expander("🗑️ Xóa ghi chú (toàn bộ)"):
-        if st.button("⚠️ Xóa tất cả ghi chú", help="Xóa toàn bộ markers của tất cả người dùng"):
-            try:
-                db.child("markers").remove()
-                st.sidebar.success("Đã xóa toàn bộ ghi chú!")
-            except Exception as e:
-                st.sidebar.error(f"Lỗi xóa: {e}")
-
-with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
-    uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
-    note_photo = st.text_input("Ghi chú (tùy chọn)")
-    if st.button("📤 Gửi ảnh"):
-        if not st.session_state.sharing:
-            st.sidebar.warning("Bạn cần bật chia sẻ vị trí trước")
-        elif uploaded_file is None:
-            st.sidebar.warning("Vui lòng chọn ảnh")
-        else:
-            current = db.child("officers").child(username).get().val()
-            if current and is_valid_coordinate(current.get("lat"), current.get("lng")):
-                imgbb_api_key = st.secrets["imgbb"]["api_key"]
-                image_url, error = upload_to_imgbb(uploaded_file, imgbb_api_key)
-                if error:
-                    st.sidebar.error(f"Lỗi upload: {error}")
-                else:
-                    incident_data = {
-                        "created_by": name,
-                        "lat": current["lat"],
-                        "lng": current["lng"],
-                        "note": note_photo,
-                        "image_url": image_url,
-                        "timestamp": int(time.time() * 1000)
-                    }
-                    db.child("incidents").push(incident_data)
-                    st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
-            else:
-                st.sidebar.error("Không có vị trí hợp lệ")
-
-# ==============================
-# 13. NHIỆM VỤ
-# ==============================
-st.sidebar.markdown("---")
-st.sidebar.subheader("📋 Nhiệm vụ")
-if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
-    alerts = db.child("alerts").get().val()
-    if alerts:
-        found = False
-        for key, alert in alerts.items():
-            assigned = alert.get("assigned", [])
-            if username in assigned:
-                db.child("alerts").child(key).update({
-                    "status": "accepted",
-                    "accepted_by": name
-                })
-                st.sidebar.success("Đã nhận nhiệm vụ")
-                found = True
-                break
-        if not found:
-            st.sidebar.info("Không có nhiệm vụ nào cho bạn")
-    else:
-        st.sidebar.info("Không có báo động nào")
-
-# ==============================
-# 14. QUẢN LÝ USER (ADMIN)
-# ==============================
-if user_role == "admin":
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("👤 Quản lý tài khoản")
-    
-    with st.sidebar.expander("➕ Thêm user mới"):
-        new_username = st.text_input("Tên đăng nhập")
-        new_email = st.text_input("Email")
-        new_name = st.text_input("Tên hiển thị")
-        new_password = st.text_input("Mật khẩu", type="password")
-        new_role = st.selectbox("Vai trò", ["admin", "commander", "officer"])
-        new_color = st.color_picker("Màu sắc", "#0066cc")
-        
-        if st.button("Tạo tài khoản"):
-            if not new_username or not new_name or not new_password:
-                st.sidebar.error("Vui lòng nhập đầy đủ: tên đăng nhập, tên hiển thị và mật khẩu")
-            elif new_username in config["credentials"]["usernames"]:
-                st.sidebar.error("Tên đăng nhập đã tồn tại")
-            else:
-                hashed = Hasher([new_password]).generate()[0]
-                config["credentials"]["usernames"][new_username] = {
-                    "email": new_email,
-                    "name": new_name,
-                    "password": hashed,
-                    "role": new_role,
-                    "color": new_color
-                }
-                if save_credentials_to_firebase(config["credentials"]):
-                    st.sidebar.success(f"Đã thêm user {new_username}")
-                    st.rerun()
-                else:
-                    st.sidebar.error("Lỗi lưu dữ liệu")
-    
-    with st.sidebar.expander("🗑️ Xóa user"):
-        users = list(config["credentials"]["usernames"].keys())
-        if users:
-            user_to_delete = st.selectbox("Chọn user để xóa", users)
-            if st.button("Xóa user"):
-                if user_to_delete == username:
-                    st.sidebar.error("Không thể xóa chính mình")
-                else:
-                    del config["credentials"]["usernames"][user_to_delete]
-                    if save_credentials_to_firebase(config["credentials"]):
-                        st.sidebar.success(f"Đã xóa user {user_to_delete}")
-                        st.rerun()
-                    else:
-                        st.sidebar.error("Lỗi lưu dữ liệu")
-        else:
-            st.sidebar.info("Không có user nào")
-
-# ==============================
-# 15. LOAD DỮ LIỆU
+# 10. LOAD DỮ LIỆU
 # ==============================
 @st.cache_data(ttl=5)
 def load_officers():
@@ -784,57 +750,269 @@ def load_incidents():
         st.error(f"Lỗi đọc incidents: {e}")
         return {}
 
-# ==============================
-# 16. AUTO REFRESH
-# ==============================
-st_autorefresh(interval=10000, key="auto_refresh")
-
-# ==============================
-# 17. CHECKBOX TRACK
-# ==============================
-st.sidebar.markdown("---")
-st.sidebar.subheader("🗺️ Lịch sử di chuyển")
-
-if 'show_tracks' not in st.session_state:
-    st.session_state.show_tracks = {}
-
 officers = load_officers()
-if officers:
-    for uid, info in officers.items():
-        key = f"track_{uid}"
-        checked = st.sidebar.checkbox(
-            f"Track của {info['name']}",
-            value=st.session_state.show_tracks.get(uid, False),
-            key=key
-        )
-        st.session_state.show_tracks[uid] = checked
+all_markers = load_all_markers()
+incidents = load_incidents()
+stationary_officers = detect_stationary_officers()
 
 # ==============================
-# 18. CHUẨN BỊ MAP
+# 11. PANEL BÊN TRÁI
+# ==============================
+with st.container():
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+
+    # Dashboard mini
+    st.markdown(f"""
+    <div class="dashboard-item">
+        <b>📊 Tổng quan</b><br>
+        👥 Online: {len(officers)}<br>
+        📍 Marker: {len(all_markers)}<br>
+        📸 Ảnh: {len(incidents)}<br>
+        ⚠️ Báo động: {len(db.child("alerts").get().val() or {})}
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Chia sẻ vị trí
+    if not st.session_state.sharing:
+        if st.button("📡 BẮT ĐẦU CHIA SẺ VỊ TRÍ"):
+            st.session_state.sharing = True
+            st.rerun()
+    else:
+        if st.button("🛑 DỪNG CHIA SẺ"):
+            db.child("officers").child(username).remove()
+            st.session_state.sharing = False
+            st.rerun()
+
+    # Các nút công cụ
+    if st.button("🚨 GỬI BÁO ĐỘNG"):
+        user_data = db.child("officers").child(username).get().val()
+        if user_data and is_valid_coordinate(user_data.get("lat"), user_data.get("lng")):
+            lat = user_data["lat"]
+            lng = user_data["lng"]
+            nearest = find_nearest_officers(lat, lng)
+            request_data = {
+                "username": username,
+                "name": name,
+                "lat": lat,
+                "lng": lng,
+                "assigned": nearest,
+                "status": "pending",
+                "timestamp": int(time.time() * 1000)
+            }
+            db.child("alert_requests").push(request_data)
+
+            server_key = st.secrets.get("fcm", {}).get("server_key", "")
+            if server_key:
+                tokens = db.child("fcm_tokens").get().val() or {}
+                for uid, token in tokens.items():
+                    if uid != username:
+                        send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
+
+            st.success("Đã gửi yêu cầu báo động", icon="✅")
+        else:
+            st.error("Bạn chưa chia sẻ vị trí hợp lệ")
+
+    with st.expander("📍 Đánh dấu điểm"):
+        note = st.text_area("Ghi chú", key="note_marker")
+        if st.button("Thêm điểm tại vị trí hiện tại"):
+            current = db.child("officers").child(username).get().val()
+            if current and is_valid_coordinate(current.get("lat"), current.get("lng")) and note.strip():
+                marker_data = {
+                    "created_by": name,
+                    "lat": current["lat"],
+                    "lng": current["lng"],
+                    "note": note,
+                    "timestamp": int(time.time() * 1000),
+                }
+                db.child("markers").child(username).push(marker_data)
+                st.success("Đã thêm điểm")
+            else:
+                st.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
+
+    with st.expander("📸 Chụp ảnh hiện trường"):
+        uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
+        note_photo = st.text_input("Ghi chú (tùy chọn)")
+        if st.button("📤 Gửi ảnh"):
+            if not st.session_state.sharing:
+                st.warning("Bạn cần bật chia sẻ vị trí trước")
+            elif uploaded_file is None:
+                st.warning("Vui lòng chọn ảnh")
+            else:
+                current = db.child("officers").child(username).get().val()
+                if current and is_valid_coordinate(current.get("lat"), current.get("lng")):
+                    imgbb_api_key = st.secrets["imgbb"]["api_key"]
+                    image_url, error = upload_to_imgbb(uploaded_file, imgbb_api_key)
+                    if error:
+                        st.error(f"Lỗi upload: {error}")
+                    else:
+                        incident_data = {
+                            "created_by": name,
+                            "lat": current["lat"],
+                            "lng": current["lng"],
+                            "note": note_photo,
+                            "image_url": image_url,
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        db.child("incidents").push(incident_data)
+                        st.success("Đã gửi ảnh hiện trường!")
+                else:
+                    st.error("Không có vị trí hợp lệ")
+
+    if st.button("✅ NHẬN NHIỆM VỤ GẦN NHẤT"):
+        alerts = db.child("alerts").get().val()
+        if alerts:
+            found = False
+            for key, alert in alerts.items():
+                assigned = alert.get("assigned", [])
+                if username in assigned:
+                    db.child("alerts").child(key).update({
+                        "status": "accepted",
+                        "accepted_by": name
+                    })
+                    st.success("Đã nhận nhiệm vụ")
+                    found = True
+                    break
+            if not found:
+                st.info("Không có nhiệm vụ nào cho bạn")
+        else:
+            st.info("Không có báo động nào")
+
+    # Quản lý user (admin)
+    if user_role == "admin":
+        st.markdown("---")
+        with st.expander("👤 Quản lý tài khoản"):
+            with st.form("add_user_form"):
+                new_username = st.text_input("Tên đăng nhập")
+                new_email = st.text_input("Email")
+                new_name = st.text_input("Tên hiển thị")
+                new_password = st.text_input("Mật khẩu", type="password")
+                new_role = st.selectbox("Vai trò", ["admin", "commander", "officer"])
+                new_color = st.color_picker("Màu sắc", "#0066cc")
+                if st.form_submit_button("Tạo tài khoản"):
+                    if not new_username or not new_name or not new_password:
+                        st.error("Vui lòng nhập đầy đủ")
+                    elif new_username in config["credentials"]["usernames"]:
+                        st.error("Tên đăng nhập đã tồn tại")
+                    else:
+                        hashed = Hasher([new_password]).generate()[0]
+                        config["credentials"]["usernames"][new_username] = {
+                            "email": new_email,
+                            "name": new_name,
+                            "password": hashed,
+                            "role": new_role,
+                            "color": new_color
+                        }
+                        if save_credentials_to_firebase(config["credentials"]):
+                            st.success(f"Đã thêm user {new_username}")
+                            st.rerun()
+                        else:
+                            st.error("Lỗi lưu dữ liệu")
+            with st.form("delete_user_form"):
+                users = list(config["credentials"]["usernames"].keys())
+                if users:
+                    user_to_delete = st.selectbox("Chọn user để xóa", users)
+                    if st.form_submit_button("Xóa user"):
+                        if user_to_delete == username:
+                            st.error("Không thể xóa chính mình")
+                        else:
+                            del config["credentials"]["usernames"][user_to_delete]
+                            if save_credentials_to_firebase(config["credentials"]):
+                                st.success(f"Đã xóa user {user_to_delete}")
+                                st.rerun()
+                            else:
+                                st.error("Lỗi lưu dữ liệu")
+                else:
+                    st.info("Không có user nào")
+
+    # Lệnh di chuyển (commander)
+    if user_role == "commander" and officers:
+        st.markdown("---")
+        st.subheader("🚶 Ra lệnh di chuyển")
+        officer_options = {uid: info['name'] for uid, info in officers.items() if uid != username}
+        if officer_options:
+            selected_officer = st.selectbox(
+                "Chọn cán bộ",
+                options=list(officer_options.keys()),
+                format_func=lambda x: officer_options[x]
+            )
+            if st.button("📍 BẮT ĐẦU CHỌN ĐIỂM ĐẾN"):
+                st.session_state['order_officer_id'] = selected_officer
+                st.session_state['order_officer_name'] = officer_options[selected_officer]
+                st.rerun()
+        else:
+            st.info("Không có cán bộ khác trực tuyến")
+
+    # Track checkbox
+    st.markdown("---")
+    st.subheader("🗺️ Lịch sử di chuyển")
+    if 'show_tracks' not in st.session_state:
+        st.session_state.show_tracks = {}
+    if officers:
+        for uid, info in officers.items():
+            key = f"track_{uid}"
+            checked = st.checkbox(
+                f"Track của {info['name']}",
+                value=st.session_state.show_tracks.get(uid, False),
+                key=key
+            )
+            st.session_state.show_tracks[uid] = checked
+
+    # Chat nội bộ
+    st.markdown("---")
+    st.subheader("💬 Chat nội bộ")
+    # Hiển thị tin nhắn
+    messages_ref = db.child("messages").order_by_child("timestamp").limit_to_last(50)
+    messages = messages_ref.get().val()
+    if messages:
+        sorted_msgs = sorted(messages.items(), key=lambda x: x[1]["timestamp"])
+        for key, msg in sorted_msgs:
+            vn_time = datetime.fromtimestamp(
+                msg["timestamp"]/1000, tz=timezone(timedelta(hours=7))
+            ).strftime("%H:%M")
+            is_me = (msg["from"] == username)
+            align = "me" if is_me else "other"
+            st.markdown(f"""
+            <div class="chat-message {align}">
+                <div class="chat-bubble {align}">
+                    <b>{msg['name']}</b> <span style="font-size:11px;">{vn_time}</span><br>
+                    {msg['message']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("Chưa có tin nhắn nào.")
+    # Ô nhập tin nhắn
+    with st.form("chat_form", clear_on_submit=True):
+        message = st.text_input("Tin nhắn", placeholder="Nhập tin nhắn...", label_visibility="collapsed")
+        sent = st.form_submit_button("Gửi")
+        if sent and message.strip():
+            chat_data = {
+                "from": username,
+                "name": name,
+                "message": message,
+                "timestamp": int(time.time() * 1000)
+            }
+            db.child("messages").push(chat_data)
+            # Giới hạn 200 tin nhắn
+            all_msgs = db.child("messages").order_by_child("timestamp").get().val()
+            if all_msgs and len(all_msgs) > 200:
+                sorted_all = sorted(all_msgs.items(), key=lambda x: x[1]["timestamp"])
+                for k, _ in sorted_all[:-200]:
+                    db.child("messages").child(k).remove()
+            st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ==============================
+# 12. MAP (NÂNG CẤP)
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
 fcm_vapid_key = st.secrets.get("fcm", {}).get("vapid_key", "")
-
-stationary_officers = detect_stationary_officers()
-stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
 user_role_json = json.dumps(user_role)
+stationary_json = json.dumps(stationary_officers)
 
-# Xóa officer lỗi
-try:
-    officers_old = db.child("officers").get().val()
-    if officers_old:
-        for uid, data in officers_old.items():
-            if not is_valid_coordinate(data.get("lat"), data.get("lng")):
-                db.child("officers").child(uid).remove()
-                print(f"Đã xóa officer {uid} có tọa độ lỗi")
-except Exception as e:
-    print("Cleanup error:", e)
-
-# ==============================
-# 19. ORDER JS
-# ==============================
 order_js = ""
 if user_role == "commander" and st.session_state.get('order_officer_id'):
     order_js = f"""
@@ -850,36 +1028,41 @@ if user_role == "commander" and st.session_state.get('order_officer_id'):
 else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
-# ==============================
-# 20. MAP HTML (ĐÃ SỬA MOBILE + CHẶN XUNG ĐỘT HOLD)
-# ==============================
 map_html = f"""
-<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> 
-<link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> 
-<script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> 
-<script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> 
-<style> 
-    #map {{ height: 600px; width: 100%; }} 
-    .leaflet-container {{ will-change: transform; }} 
-    .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} 
-    .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} 
-    @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} 
-    .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} 
-    .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} 
-    .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} 
-    /* CHẶN BÔI ĐEN SAFARI */
+<!DOCTYPE html><html><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
+<style>
+    #map {{ height: 100%; width: 100%; }}
+    .leaflet-container {{ will-change: transform; }}
+    .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #fff; text-shadow: 1px 1px 2px black; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }}
+    .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 20px red; animation: pulse 1s infinite; }}
+    @keyframes pulse {{
+        0% {{ transform: scale(1); opacity: 1; }}
+        50% {{ transform: scale(1.5); opacity: 0.5; }}
+        100% {{ transform: scale(1); opacity: 1; }}
+    }}
+    .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }}
+    .selection-info {{ background: rgba(0,0,0,0.8); color: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }}
+    .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }}
     * {{
         -webkit-user-select: none;
         user-select: none;
         -webkit-touch-callout: none;
     }}
-</style> 
-<body> {order_js} <div id="map"></div> 
-<script type="module"> 
-import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; 
-import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
+</style>
+</head>
+<body>
+{order_js}
+<div id="map"></div>
+<script type="module">
+import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 
 const firebaseConfig = {json.dumps(firebase_config)};
@@ -893,9 +1076,6 @@ const userRole = {user_role_json};
 const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
-
-console.log("👤 Username:", myUsername);
-console.log("👤 Role:", userRole);
 
 function isValidVNCoordinate(lat, lng) {{
     if (typeof lat !== 'number' || typeof lng !== 'number') return false;
@@ -942,12 +1122,19 @@ if (savedCenter && savedZoom) {{
     map = L.map('map', {{ preferCanvas: true, zoomAnimation: false, fadeAnimation: false, inertia: false }})
         .setView([21.0285, 105.8542], 13);
 }}
-L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
+
+// LAYER CONTROL
+const darkLayer = L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{{z}}/{{x}}/{{y}}{{r}}.png', {{
     maxZoom: 20,
-    updateWhenZooming: false
-}}).addTo(map);
+    attribution: '&copy; Stadia Maps'
+}});
+const streetLayer = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap'
+}});
+darkLayer.addTo(map);
+L.control.layers({{ "🌙 Dark": darkLayer, "🗺️ Street": streetLayer }}).addTo(map);
+map.zoomControl.setPosition('bottomright');
 
 map.on('moveend', () => {{
     const center = map.getCenter();
@@ -968,9 +1155,8 @@ let selectionMode = false;
 let selectedOfficerId = null;
 let selectedOfficerName = null;
 let tempInfoControl = null;
-let selectionClickHandler = null;
-let hasSelected = false;  // chống double tap
-let holdTimer = null;     // timer cho giữ 5s
+let hasSelected = false;
+let holdTimer = null;
 
 const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
 alertSound.preload = "auto";
@@ -1054,7 +1240,6 @@ function activateSelectionMode(officerId, officerName) {{
 
     map.getContainer().style.cursor = 'crosshair';
 
-    // === CƠ CHẾ GIỮ 5 GIÂY ===
     map.on('touchstart', (e) => {{
         if (!selectionMode || hasSelected) return;
         const touch = e.originalEvent.touches[0];
@@ -1079,14 +1264,13 @@ function activateSelectionMode(officerId, officerName) {{
                     status: 'active'
                 }};
                 push(ref(db, 'move_orders'), orderData);
-                // feedback
                 const marker = L.marker([endLat, endLng]).addTo(map);
                 marker.bindPopup("📍 Đã chọn điểm (giữ 5s)").openPopup();
                 setTimeout(() => map.removeLayer(marker), 5000);
                 if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
             }}
             deactivateSelectionMode();
-        }}, 5000); // 5 giây
+        }}, 5000);
     }});
     map.on('touchend', () => {{
         clearTimeout(holdTimer);
@@ -1100,7 +1284,6 @@ function deactivateSelectionMode() {{
     if (!selectionMode) return;
     if (tempInfoControl) map.removeControl(tempInfoControl);
     map.getContainer().style.cursor = '';
-    // xóa timer nếu còn
     if (holdTimer) clearTimeout(holdTimer);
     selectionMode = false;
     selectedOfficerId = null;
@@ -1109,27 +1292,44 @@ function deactivateSelectionMode() {{
     hasSelected = false;
 }}
 
-// Thêm marker officer
+// MARKER VỚI TÊN
+function createOfficerMarker(lat, lng, name, color) {{
+    const icon = L.divIcon({{
+        html: `
+            <div style="display:flex; flex-direction:column; align-items:center;">
+                <div style="
+                    width:22px;
+                    height:22px;
+                    background:${{color}};
+                    border-radius:50%;
+                    border:3px solid white;
+                    box-shadow:0 0 12px ${{color}};
+                "></div>
+                <div style="
+                    font-size:11px;
+                    color:white;
+                    margin-top:2px;
+                    text-shadow: 1px 1px 0 black;
+                ">${{name}}</div>
+            </div>
+        `,
+        className: '',
+        iconSize: [40, 40],
+        popupAnchor: [0, -15]
+    }});
+    return L.marker([lat, lng], {{ icon: icon }});
+}}
+
 onChildAdded(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
-    if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
-        console.log("⚠️ Bỏ qua officer có tọa độ lỗi:", id, officer.lat, officer.lng);
-        return;
-    }}
+    if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
     const color = getOfficerColor(id);
-    const marker = L.circleMarker([officer.lat, officer.lng], {{
-        radius: 7,
-        color: color,
-        fillColor: color,
-        fillOpacity: 0.9,
-        weight: 1,
-        renderer: L.canvas()
-    }}).addTo(map);
-    marker.bindTooltip(officer.name, {{
-        permanent: true, direction: 'top', offset: [0, -8], className: 'officer-label'
+    const marker = createOfficerMarker(officer.lat, officer.lng, officer.name, color).addTo(map);
+    marker.bindTooltip(officer.name, {{ permanent: true, direction: 'top', offset: [0, -22], className: 'officer-label' }});
+    marker.on('click', () => {{
+        map.flyTo(marker.getLatLng(), 18);
     }});
-    
     officerMarkers[id] = marker;
     if (id === myUsername && !zoomedToMe) {{
         map.setView([officer.lat, officer.lng], 16);
@@ -1138,7 +1338,6 @@ onChildAdded(officersRef, (data) => {{
     }}
 }});
 
-// Cập nhật marker
 onChildChanged(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
@@ -1154,6 +1353,8 @@ onChildChanged(officersRef, (data) => {{
         const lat = start.lat + (end.lat - start.lat) * (step / steps);
         const lng = start.lng + (end.lng - start.lng) * (step / steps);
         marker.setLatLng([lat, lng]);
+        // Cập nhật lại icon (giữ tên)
+        marker.setIcon(createOfficerMarker(lat, lng, officer.name, getOfficerColor(id)).options.icon);
         if (step < steps) requestAnimationFrame(animate);
     }}
     animate();
@@ -1171,7 +1372,7 @@ onChildRemoved(officersRef, (data) => {{
     }}
 }});
 
-// Online status
+// ONLINE STATUS
 const OFFLINE_TIMEOUT = 60000;
 function updateOnlineStatus() {{
     const now = Date.now();
@@ -1182,10 +1383,11 @@ function updateOnlineStatus() {{
             if (marker) {{
                 const lastUpdate = officers[uid].lastUpdate;
                 if (lastUpdate === 0 || now - lastUpdate > OFFLINE_TIMEOUT) {{
-                    marker.setStyle({{ color: '#aaa', fillColor: '#aaa' }});
+                    // Đổi màu xám
+                    marker.setIcon(createOfficerMarker(marker.getLatLng().lat, marker.getLatLng().lng, officers[uid].name, '#aaa').options.icon);
                 }} else {{
                     const originalColor = getOfficerColor(uid);
-                    marker.setStyle({{ color: originalColor, fillColor: originalColor }});
+                    marker.setIcon(createOfficerMarker(marker.getLatLng().lat, marker.getLatLng().lng, officers[uid].name, originalColor).options.icon);
                 }}
             }}
         }});
@@ -1193,7 +1395,7 @@ function updateOnlineStatus() {{
 }}
 setInterval(updateOnlineStatus, 30000);
 
-// Alerts
+// ALERTS
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 function getAlertPopupContent(alert) {{
@@ -1241,7 +1443,7 @@ onChildRemoved(alertsRef, (data) => {{
     }}
 }});
 
-// Markers và incidents
+// MARKERS (ghi chú)
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1274,6 +1476,7 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
     }});
 }});
 
+// INCIDENTS
 const incidentsRef = ref(db, 'incidents');
 onChildAdded(incidentsRef, (data) => {{
     const inc = data.val();
@@ -1298,11 +1501,10 @@ onChildRemoved(incidentsRef, (data) => {{
     }}
 }});
 
-// === GHI CHÚ (GIỮ 2 GIÂY) CHỈ KHI KHÔNG Ở CHẾ ĐỘ CHỌN LỆNH ===
+// GHI CHÚ BẰNG GIỮ 2 GIÂY (CHỈ KHI KHÔNG Ở CHẾ ĐỘ CHỌN LỆNH)
 if (userRole !== 'commander') {{
     let pressTimerMarker = null;
     map.on('touchstart', (e) => {{
-        // Nếu đang ở chế độ ra lệnh thì KHÔNG tạo ghi chú
         if (selectionMode) return;
         const touch = e.originalEvent.touches[0];
         const latlng = map.mouseEventToLatLng(touch);
@@ -1323,7 +1525,7 @@ if (userRole !== 'commander') {{
     map.on('touchcancel', () => clearTimeout(pressTimerMarker));
 }}
 map.on('contextmenu', (e) => {{
-    if (selectionMode) return;  // chặn khi đang chọn lệnh
+    if (selectionMode) return;
     e.originalEvent.preventDefault();
     const note = prompt("Nhập ghi chú cho điểm này:");
     if (note && note.trim()) {{
@@ -1337,7 +1539,7 @@ map.on('contextmenu', (e) => {{
     }}
 }});
 
-// Tracks
+// TRACKS
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1380,7 +1582,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// Move orders
+// MOVE ORDERS
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1438,7 +1640,7 @@ onValue(officersRef, (snapshot) => {{
     if (Object.keys(officers).length > 1) zoomToAllOfficers();
 }});
 
-// Xử lý pending order (chờ marker load)
+// XỬ LÝ PENDING ORDER (chờ marker load)
 if (window.pendingOrder && window.pendingOrder.officerId) {{
     const checkInterval = setInterval(() => {{
         if (officerMarkers[window.pendingOrder.officerId]) {{
@@ -1447,135 +1649,16 @@ if (window.pendingOrder && window.pendingOrder.officerId) {{
         }}
     }}, 200);
 }}
-</script> </body> </html> """
+</script>
+</body></html>
+"""
+
+# Đặt map trong container
+st.markdown('<div class="map-container">', unsafe_allow_html=True)
+st.components.v1.html(map_html, height=800)
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 21. TABS
+# 13. AUTO REFRESH
 # ==============================
-tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
-
-with tab1:
-    st.components.v1.html(map_html, height=620)
-
-with tab2:
-    st.subheader("💬 Chat nội bộ")
-    st_autorefresh(interval=3000, key="chat_refresh")
-
-    def cleanup_old_messages():
-        msgs = db.child("messages").get().val()
-        if not msgs: return
-        now = int(time.time() * 1000)
-        for key, msg in msgs.items():
-            if now - msg.get("timestamp", 0) > 24*3600*1000:
-                db.child("messages").child(key).remove()
-    cleanup_old_messages()
-
-    messages = db.child("messages").order_by_child("timestamp").limit_to_last(50).get()
-    if messages.val():
-        sorted_msgs = sorted(messages.val().items(), key=lambda x: x[1]["timestamp"])
-        for key, msg in sorted_msgs:
-            vn_time = datetime.fromtimestamp(
-                msg["timestamp"]/1000, tz=timezone(timedelta(hours=7))
-            ).strftime("%H:%M")
-            is_me = (msg["from"] == username)
-            align = "right" if is_me else "left"
-            bg_color = "#dcf8c6" if is_me else "#f1f0f0"
-            st.markdown(
-                f"<div style='display: flex; justify-content: {align}; margin:5px;'>"
-                f"<div style='background-color: {bg_color}; padding:8px 12px; border-radius:10px; max-width:70%;'>"
-                f"<b>{msg['name']}</b> {vn_time}<br>{msg['message']}"
-                f"</div></div>",
-                unsafe_allow_html=True
-            )
-        st.markdown("<script>window.scrollTo(0, document.body.scrollHeight);</script>", unsafe_allow_html=True)
-    else:
-        st.info("Chưa có tin nhắn nào.")
-
-    if 'last_chat_time' not in st.session_state:
-        st.session_state.last_chat_time = 0
-
-    with st.form("chat_form", clear_on_submit=True):
-        col1, col2 = st.columns([5,1])
-        with col1:
-            message = st.text_input("Tin nhắn", placeholder="Nhập tin nhắn...", label_visibility="collapsed")
-        with col2:
-            sent = st.form_submit_button("Gửi")
-        if sent and message.strip():
-            now = time.time()
-            if now - st.session_state.last_chat_time < 2:
-                st.warning("Vui lòng chờ 2 giây trước khi gửi tin nhắn tiếp theo.")
-            else:
-                st.session_state.last_chat_time = now
-                chat_data = {
-                    "from": username, "name": name, "message": message,
-                    "timestamp": int(time.time() * 1000)
-                }
-                db.child("messages").push(chat_data)
-                all_msgs = db.child("messages").order_by_child("timestamp").get().val()
-                if all_msgs and len(all_msgs) > 200:
-                    sorted_all = sorted(all_msgs.items(), key=lambda x: x[1]["timestamp"])
-                    for k, _ in sorted_all[:-200]:
-                        db.child("messages").child(k).remove()
-                st.rerun()
-
-# ==============================
-# 22. DANH SÁCH CÁN BỘ ONLINE
-# ==============================
-st.sidebar.markdown("---")
-st.sidebar.subheader("👥 Cán bộ trực tuyến")
-
-if officers:
-    for uid, info in officers.items():
-        label = "(bạn)" if uid == username else ""
-        st.sidebar.write(f"• {info['name']} {label}")
-else:
-    st.sidebar.write("Chưa có ai chia sẻ vị trí hợp lệ")
-
-# ==============================
-# 23. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
-# ==============================
-all_markers = load_all_markers()
-with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
-    if all_markers:
-        valid_markers = {k: v for k, v in all_markers.items()
-                        if isinstance(v, dict) and v.get("timestamp")}
-        if valid_markers:
-            sorted_markers = sorted(valid_markers.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
-            for _, m in sorted_markers:
-                st.write(f"📍 {m.get('created_by', 'Unknown')}: {m.get('note', '')[:30]}...")
-        else:
-            st.write("Chưa có điểm đánh dấu hợp lệ")
-    else:
-        st.write("Chưa có điểm đánh dấu")
-
-# ==============================
-# 24. INCIDENTS GẦN ĐÂY
-# ==============================
-incidents = load_incidents()
-with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
-    if incidents:
-        sorted_inc = sorted(incidents.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
-        for key, inc in sorted_inc:
-            st.write(f"📷 {inc['created_by']}: {inc.get('note', '')[:30]}...")
-    else:
-        st.write("Chưa có ảnh hiện trường")
-
-# ==============================
-# 25. DROPDOWN RA LỆNH CHO COMMANDER
-# ==============================
-if user_role == "commander" and officers:
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🚶 Ra lệnh di chuyển (giữ 5 giây trên map)")
-    officer_options = {uid: info['name'] for uid, info in officers.items() if uid != username}
-    if officer_options:
-        selected_officer = st.sidebar.selectbox(
-            "Chọn cán bộ",
-            options=list(officer_options.keys()),
-            format_func=lambda x: officer_options[x]
-        )
-        if st.sidebar.button("📍 Bắt đầu chọn điểm đến"):
-            st.session_state['order_officer_id'] = selected_officer
-            st.session_state['order_officer_name'] = officer_options[selected_officer]
-            st.rerun()
-    else:
-        st.sidebar.info("Không có cán bộ khác trực tuyến")
+st_autorefresh(interval=10000, key="auto_refresh")
