@@ -854,32 +854,55 @@ else:
 # 20. MAP HTML (ĐÃ SỬA MOBILE + CHẶN XUNG ĐỘT HOLD)
 # ==============================
 map_html = f"""
-<!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> 
-<link rel="stylesheet" href="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.css" /> 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> 
-<script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> 
-<script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> 
-<style> 
-    #map {{ height: 600px; width: 100%; }} 
-    .leaflet-container {{ will-change: transform; }} 
-    .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} 
-    .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} 
-    @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} 
-    .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} 
-    .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} 
-    .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} 
-    /* CHẶN BÔI ĐEN SAFARI */
-    * {{
-        -webkit-user-select: none;
-        user-select: none;
-        -webkit-touch-callout: none;
-    }}
-</style> 
-<body> {order_js} <div id="map"></div> 
-<script type="module"> 
-import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; 
-import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.css"/>
+    <script src="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script>
+    <style>
+        #map {{ height: 600px; width: 100%; }}
+        .maplibregl-popup {{ max-width: 300px; }}
+        .alert-marker {{
+            width: 24px; height: 24px; background: red; border-radius: 50%;
+            border: 3px solid white; box-shadow: 0 0 15px red;
+            animation: blink 1s infinite;
+        }}
+        @keyframes blink {{
+            0% {{ transform: scale(1); opacity: 1; }}
+            50% {{ transform: scale(1.4); opacity: 0.6; }}
+            100% {{ transform: scale(1); opacity: 1; }}
+        }}
+        .incident-icon {{
+            background: #ffaa00; width: 30px; height: 30px; border-radius: 50%;
+            text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white;
+        }}
+        .selection-info {{
+            background: white; padding: 8px 15px; border-radius: 8px;
+            border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            position: absolute; top: 10px; right: 10px; z-index: 1000;
+        }}
+        .cancel-btn {{
+            background: #ff4444; color: white; border: none; border-radius: 5px;
+            padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px;
+        }}
+        /* CHẶN BÔI ĐEN SAFARI */
+        * {{
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }}
+    </style>
+</head>
+<body>
+{order_js}
+<div id="map"></div>
+
+<script type="module">
+import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 
 const firebaseConfig = {json.dumps(firebase_config)};
@@ -932,22 +955,70 @@ onMessage(messaging, payload => {{
     new Notification(payload.notification.title, {{ body: payload.notification.body }});
 }});
 
+// Khởi tạo MapLibre
 const savedCenter = sessionStorage.getItem('mapCenter');
 const savedZoom = sessionStorage.getItem('mapZoom');
 let map;
 if (savedCenter && savedZoom) {{
-    map = L.map('map', {{ preferCanvas: true, zoomAnimation: false, fadeAnimation: false, inertia: false }})
-        .setView(JSON.parse(savedCenter), parseInt(savedZoom));
+    const center = JSON.parse(savedCenter);
+    map = new maplibregl.Map({{
+        container: 'map',
+        style: {{
+            version: 8,
+            sources: {{
+                'carto-light': {{
+                    type: 'raster',
+                    tiles: ['https://a.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}.png'],
+                    tileSize: 256,
+                    attribution: '&copy; OpenStreetMap &copy; CARTO'
+                }}
+            }},
+            layers: [{{
+                id: 'carto-light',
+                type: 'raster',
+                source: 'carto-light',
+                minzoom: 0,
+                maxzoom: 22
+            }}]
+        }},
+        center: [center[1], center[0]],
+        zoom: parseInt(savedZoom),
+        fadeDuration: 0,
+        interactive: true,
+        touchZoom: true,
+        dragRotate: false,
+        touchPitch: false
+    }});
 }} else {{
-    map = L.map('map', {{ preferCanvas: true, zoomAnimation: false, fadeAnimation: false, inertia: false }})
-        .setView([21.0285, 105.8542], 13);
+    map = new maplibregl.Map({{
+        container: 'map',
+        style: {{
+            version: 8,
+            sources: {{
+                'carto-light': {{
+                    type: 'raster',
+                    tiles: ['https://a.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}.png'],
+                    tileSize: 256,
+                    attribution: '&copy; OpenStreetMap &copy; CARTO'
+                }}
+            }},
+            layers: [{{
+                id: 'carto-light',
+                type: 'raster',
+                source: 'carto-light',
+                minzoom: 0,
+                maxzoom: 22
+            }}]
+        }},
+        center: [105.8542, 21.0285],
+        zoom: 13,
+        fadeDuration: 0,
+        interactive: true,
+        touchZoom: true,
+        dragRotate: false,
+        touchPitch: false
+    }});
 }}
-L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 20,
-    updateWhenZooming: false
-}}).addTo(map);
 
 map.on('moveend', () => {{
     const center = map.getCenter();
@@ -955,11 +1026,15 @@ map.on('moveend', () => {{
     sessionStorage.setItem('mapZoom', map.getZoom());
 }});
 
-const officerMarkers = {{}};
+// Thêm controls để zoom
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+// Lưu trữ markers
+const officerMarkers = {{}};      // lưu id -> element HTML
 const alertMarkers = {{}};
 const pointMarkers = {{}};
 const incidentMarkers = {{}};
-const trackPolylines = {{}};
+const trackPolylines = {{}};      // lưu id -> GeoJSON source id
 const trackListeners = {{}};
 const moveOrderLines = {{}};
 
@@ -968,9 +1043,8 @@ let selectionMode = false;
 let selectedOfficerId = null;
 let selectedOfficerName = null;
 let tempInfoControl = null;
-let selectionClickHandler = null;
-let hasSelected = false;  // chống double tap
-let holdTimer = null;     // timer cho giữ 5s
+let hasSelected = false;
+let holdTimer = null;
 
 const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
 alertSound.preload = "auto";
@@ -983,45 +1057,132 @@ if (!sessionStorage.getItem('audioActivated')) {{
     alertSound.load();
 }}
 
-const alertIcon = L.divIcon({{
-    className: '', html: '<div class="alert-marker"></div>',
-    iconSize: [24, 24], popupAnchor: [0, -12]
-}});
-const incidentIcon = L.divIcon({{
-    className: '', html: '<div class="incident-icon">📷</div>',
-    iconSize: [30, 30], popupAnchor: [0, -15]
-}});
-
-if (navigator.geolocation && !zoomedToMe) {{
-    navigator.geolocation.getCurrentPosition(
-        (position) => {{
-            const {{ latitude: lat, longitude: lng }} = position.coords;
-            if (isValidVNCoordinate(lat, lng)) {{
-                map.setView([lat, lng], 16);
-                zoomedToMe = true;
-                sessionStorage.setItem('zoomedToMe', 'true');
-            }}
-        }},
-        (error) => console.warn("GPS fallback error:", error),
-        {{ enableHighAccuracy: true, timeout: 10000 }}
-    );
+// Hàm tạo marker HTML
+function createOfficerMarker(color) {{
+    const el = document.createElement('div');
+    el.style.width = '14px';
+    el.style.height = '14px';
+    el.style.borderRadius = '50%';
+    el.style.backgroundColor = color;
+    el.style.border = '2px solid white';
+    el.style.boxShadow = '0 0 2px black';
+    return el;
 }}
 
-stationaryOfficers.forEach(officer => {{
-    if (isValidVNCoordinate(officer.lat, officer.lng)) {{
-        L.circleMarker([officer.lat, officer.lng], {{
-            radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2,
-            renderer: L.canvas()
-        }}).addTo(map).bindTooltip(`⚠ ${{officer.name}} đứng yên >15 phút`);
+function createAlertMarker() {{
+    const el = document.createElement('div');
+    el.className = 'alert-marker';
+    return el;
+}}
+
+function createIncidentMarker() {{
+    const el = document.createElement('div');
+    el.className = 'incident-icon';
+    el.innerHTML = '📷';
+    return el;
+}}
+
+function createPointMarker() {{
+    const el = document.createElement('div');
+    el.style.width = '12px';
+    el.style.height = '12px';
+    el.style.borderRadius = '50%';
+    el.style.backgroundColor = '#ffaa00';
+    el.style.border = '1px solid white';
+    return el;
+}}
+
+// Thêm marker lên map
+function addMarker(lng, lat, element, popupContent) {{
+    const marker = new maplibregl.Marker({{
+        element: element,
+        anchor: 'bottom'
+    }})
+    .setLngLat([lng, lat])
+    .addTo(map);
+    if (popupContent) {{
+        const popup = new maplibregl.Popup({{
+            offset: [0, -10]
+        }}).setHTML(popupContent);
+        marker.setPopup(popup);
     }}
-}});
-
-const officersRef = ref(db, 'officers');
-
-function getOfficerColor(uid) {{
-    return userColors[uid] || '#0066cc';
+    return marker;
 }}
 
+// Cập nhật vị trí marker
+function updateMarker(marker, lng, lat) {{
+    marker.setLngLat([lng, lat]);
+}}
+
+// Xóa marker
+function removeMarker(marker) {{
+    marker.remove();
+}}
+
+// Tạo polyline track
+function addTrackPolyline(userId, points, color) {{
+    const sourceId = `track-${userId}`;
+    const layerId = `track-line-${userId}`;
+    if (map.getSource(sourceId)) {{
+        map.removeLayer(layerId);
+        map.removeSource(sourceId);
+    }}
+    const geojson = {{
+        type: 'FeatureCollection',
+        features: [{{
+            type: 'Feature',
+            geometry: {{
+                type: 'LineString',
+                coordinates: points.map(p => [p.lng, p.lat])
+            }}
+        }}]
+    }};
+    map.addSource(sourceId, {{
+        type: 'geojson',
+        data: geojson
+    }});
+    map.addLayer({{
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        layout: {{
+            'line-join': 'round',
+            'line-cap': 'round'
+        }},
+        paint: {{
+            'line-color': color,
+            'line-width': 3,
+            'line-opacity': 0.7
+        }}
+    }});
+    return sourceId;
+}
+
+function updateTrackPolyline(userId, points) {{
+    const sourceId = `track-${userId}`;
+    if (map.getSource(sourceId)) {{
+        const geojson = {{
+            type: 'FeatureCollection',
+            features: [{{
+                type: 'Feature',
+                geometry: {{
+                    type: 'LineString',
+                    coordinates: points.map(p => [p.lng, p.lat])
+                }}
+            }}]
+        }};
+        map.getSource(sourceId).setData(geojson);
+    }}
+}}
+
+function removeTrackPolyline(userId) {{
+    const sourceId = `track-${userId}`;
+    const layerId = `track-line-${userId}`;
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
+}}
+
+// Hàm hiển thị thông báo chọn lệnh
 function activateSelectionMode(officerId, officerName) {{
     if (selectionMode) return;
     selectionMode = true;
@@ -1029,84 +1190,108 @@ function activateSelectionMode(officerId, officerName) {{
     selectedOfficerName = officerName;
     hasSelected = false;
 
-    const infoControl = L.control({{ position: 'topright' }});
-    infoControl.onAdd = () => {{
-        const div = L.DomUtil.create('div', 'selection-info');
-        div.innerHTML = `
-            <span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span>
-            <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
-        `;
-        div.style.cursor = 'default';
-        L.DomEvent.disableClickPropagation(div);
-        return div;
+    // Tạo control tạm
+    const div = document.createElement('div');
+    div.className = 'selection-info';
+    div.innerHTML = `
+        <span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span>
+        <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
+    `;
+    document.body.appendChild(div);
+    tempInfoControl = div;
+
+    document.getElementById('cancel-order-btn').onclick = () => {{
+        deactivateSelectionMode();
     }};
-    infoControl.addTo(map);
-    tempInfoControl = infoControl;
 
-    setTimeout(() => {{
-        const cancelBtn = document.getElementById('cancel-order-btn');
-        if (cancelBtn) {{
-            cancelBtn.onclick = () => {{
-                deactivateSelectionMode();
-            }};
-        }}
-    }}, 100);
+    map.getCanvas().style.cursor = 'crosshair';
 
-    map.getContainer().style.cursor = 'crosshair';
-
-    // === CƠ CHẾ GIỮ 5 GIÂY ===
-    map.on('touchstart', (e) => {{
+    // Cơ chế giữ 5 giây
+    let touchStartPos = null;
+    let timer = null;
+    const onTouchStart = (e) => {{
         if (!selectionMode || hasSelected) return;
-        const touch = e.originalEvent.touches[0];
-        const latlng = map.mouseEventToLatLng(touch);
-        holdTimer = setTimeout(() => {{
+        const touch = e.touches[0];
+        const lngLat = map.unproject([touch.clientX, touch.clientY]);
+        touchStartPos = lngLat;
+        timer = setTimeout(() => {{
             if (hasSelected) return;
             hasSelected = true;
-            const endLat = latlng.lat;
-            const endLng = latlng.lng;
-            const startMarker = officerMarkers[selectedOfficerId];
-            if (startMarker) {{
-                const startLatLng = startMarker.getLatLng();
-                const orderData = {{
-                    officerId: selectedOfficerId,
-                    fromLat: startLatLng.lat,
-                    fromLng: startLatLng.lng,
-                    toLat: endLat,
-                    toLng: endLng,
-                    commanderName: myName,
-                    commanderId: myUsername,
-                    timestamp: Date.now(),
-                    status: 'active'
-                }};
-                push(ref(db, 'move_orders'), orderData);
-                // feedback
-                const marker = L.marker([endLat, endLng]).addTo(map);
-                marker.bindPopup("📍 Đã chọn điểm (giữ 5s)").openPopup();
-                setTimeout(() => map.removeLayer(marker), 5000);
-                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            const endLat = touchStartPos.lat;
+            const endLng = touchStartPos.lng;
+            const startMarkerEl = officerMarkers[selectedOfficerId];
+            if (startMarkerEl) {{
+                const startMarker = map.getMarker(startMarkerEl);
+                if (startMarker) {{
+                    const startLatLng = startMarker.getLngLat();
+                    const orderData = {{
+                        officerId: selectedOfficerId,
+                        fromLat: startLatLng.lat,
+                        fromLng: startLatLng.lng,
+                        toLat: endLat,
+                        toLng: endLng,
+                        commanderName: myName,
+                        commanderId: myUsername,
+                        timestamp: Date.now(),
+                        status: 'active'
+                    }};
+                    push(ref(db, 'move_orders'), orderData);
+                    // feedback
+                    const feedbackEl = document.createElement('div');
+                    feedbackEl.style.backgroundColor = '#ff8800';
+                    feedbackEl.style.color = 'white';
+                    feedbackEl.style.padding = '5px 10px';
+                    feedbackEl.style.borderRadius = '20px';
+                    feedbackEl.style.fontSize = '12px';
+                    feedbackEl.innerText = '📍 Đã chọn điểm (giữ 5s)';
+                    const popup = new maplibregl.Popup({{
+                        closeButton: false,
+                        closeOnClick: false
+                    }})
+                    .setLngLat([endLng, endLat])
+                    .setDOMContent(feedbackEl)
+                    .addTo(map);
+                    setTimeout(() => popup.remove(), 3000);
+                    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                }}
             }}
             deactivateSelectionMode();
-        }}, 5000); // 5 giây
-    }});
-    map.on('touchend', () => {{
-        clearTimeout(holdTimer);
-    }});
-    map.on('touchcancel', () => {{
-        clearTimeout(holdTimer);
-    }});
+        }}, 5000);
+    }};
+    const onTouchEnd = () => {{
+        if (timer) clearTimeout(timer);
+        timer = null;
+        touchStartPos = null;
+    }};
+    map.on('touchstart', onTouchStart);
+    map.on('touchend', onTouchEnd);
+    map.on('touchcancel', onTouchEnd);
+    // Lưu lại để cleanup
+    window._holdHandlers = {{ onTouchStart, onTouchEnd }};
 }}
 
 function deactivateSelectionMode() {{
     if (!selectionMode) return;
-    if (tempInfoControl) map.removeControl(tempInfoControl);
-    map.getContainer().style.cursor = '';
-    // xóa timer nếu còn
-    if (holdTimer) clearTimeout(holdTimer);
+    if (tempInfoControl) tempInfoControl.remove();
+    map.getCanvas().style.cursor = '';
+    if (window._holdHandlers) {{
+        map.off('touchstart', window._holdHandlers.onTouchStart);
+        map.off('touchend', window._holdHandlers.onTouchEnd);
+        map.off('touchcancel', window._holdHandlers.onTouchEnd);
+        delete window._holdHandlers;
+    }}
     selectionMode = false;
     selectedOfficerId = null;
     selectedOfficerName = null;
     tempInfoControl = null;
     hasSelected = false;
+}}
+
+// Lấy tham chiếu
+const officersRef = ref(db, 'officers');
+
+function getOfficerColor(uid) {{
+    return userColors[uid] || '#0066cc';
 }}
 
 // Thêm marker officer
@@ -1118,21 +1303,22 @@ onChildAdded(officersRef, (data) => {{
         return;
     }}
     const color = getOfficerColor(id);
-    const marker = L.circleMarker([officer.lat, officer.lng], {{
-        radius: 7,
-        color: color,
-        fillColor: color,
-        fillOpacity: 0.9,
-        weight: 1,
-        renderer: L.canvas()
-    }}).addTo(map);
-    marker.bindTooltip(officer.name, {{
-        permanent: true, direction: 'top', offset: [0, -8], className: 'officer-label'
+    const el = createOfficerMarker(color);
+    const marker = addMarker(officer.lng, officer.lat, el, null);
+    // Lưu marker và element
+    officerMarkers[id] = {{ marker, el }};
+    // Thêm tooltip riêng (popup) khi hover? MapLibre không có tooltip permanent dễ như Leaflet, tạm dùng popup
+    // Có thể dùng popup hiện khi click, nhưng để giống, tôi sẽ thêm popup khi click
+    el.addEventListener('click', () => {{
+        new maplibregl.Popup({{
+            offset: [0, -10]
+        }})
+        .setLngLat([officer.lng, officer.lat])
+        .setHTML(`<b>${{officer.name}}</b>`)
+        .addTo(map);
     }});
-    
-    officerMarkers[id] = marker;
     if (id === myUsername && !zoomedToMe) {{
-        map.setView([officer.lat, officer.lng], 16);
+        map.flyTo({{ center: [officer.lng, officer.lat], zoom: 16 }});
         zoomedToMe = true;
         sessionStorage.setItem('zoomedToMe', 'true');
     }}
@@ -1143,30 +1329,19 @@ onChildChanged(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
     if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
-    const marker = officerMarkers[id];
-    if (!marker) return;
-    const start = marker.getLatLng();
-    const end = L.latLng(officer.lat, officer.lng);
-    const steps = 5;
-    let step = 0;
-    function animate() {{
-        step++;
-        const lat = start.lat + (end.lat - start.lat) * (step / steps);
-        const lng = start.lng + (end.lng - start.lng) * (step / steps);
-        marker.setLatLng([lat, lng]);
-        if (step < steps) requestAnimationFrame(animate);
-    }}
-    animate();
-    marker.setTooltipContent(officer.name);
-    if (id === myUsername) {{
-        map.setView([officer.lat, officer.lng], map.getZoom());
+    const markerObj = officerMarkers[id];
+    if (markerObj) {{
+        updateMarker(markerObj.marker, officer.lng, officer.lat);
+        // cập nhật màu nếu cần
+        const color = getOfficerColor(id);
+        markerObj.el.style.backgroundColor = color;
     }}
 }});
 
 onChildRemoved(officersRef, (data) => {{
     const id = data.key;
     if (officerMarkers[id]) {{
-        map.removeLayer(officerMarkers[id]);
+        removeMarker(officerMarkers[id].marker);
         delete officerMarkers[id];
     }}
 }});
@@ -1178,14 +1353,13 @@ function updateOnlineStatus() {{
     get(officersRef).then((snapshot) => {{
         const officers = snapshot.val() || {{}};
         Object.keys(officers).forEach(uid => {{
-            const marker = officerMarkers[uid];
-            if (marker) {{
+            const markerObj = officerMarkers[uid];
+            if (markerObj) {{
                 const lastUpdate = officers[uid].lastUpdate;
                 if (lastUpdate === 0 || now - lastUpdate > OFFLINE_TIMEOUT) {{
-                    marker.setStyle({{ color: '#aaa', fillColor: '#aaa' }});
+                    markerObj.el.style.opacity = '0.5';
                 }} else {{
-                    const originalColor = getOfficerColor(uid);
-                    marker.setStyle({{ color: originalColor, fillColor: originalColor }});
+                    markerObj.el.style.opacity = '1';
                 }}
             }}
         }});
@@ -1198,8 +1372,9 @@ const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 function getAlertPopupContent(alert) {{
     let distanceText = "";
-    if (officerMarkers[myUsername]) {{
-        const myLatLng = officerMarkers[myUsername].getLatLng();
+    const myMarker = officerMarkers[myUsername];
+    if (myMarker && myMarker.marker) {{
+        const myLatLng = myMarker.marker.getLngLat();
         const distance = haversine(myLatLng.lat, myLatLng.lng, alert.lat, alert.lng);
         distanceText = `<br>Khoảng cách: ${{(distance/1000).toFixed(2)}} km`;
     }}
@@ -1217,31 +1392,33 @@ onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
     if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {{
-        const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
-            .addTo(map)
-            .bindPopup(getAlertPopupContent(alert));
+        const el = createAlertMarker();
+        const marker = addMarker(alert.lng, alert.lat, el, getAlertPopupContent(alert));
         alertMarkers[id] = marker;
         if (alert.name !== myName) {{
             alertSound.currentTime = 0;
             alertSound.play().catch(e => console.log("Audio play error:", e));
-            map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
+            map.flyTo({{ center: [alert.lng, alert.lat], zoom: 17, duration: 1500 }});
         }}
     }}
 }});
 onChildChanged(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
-    if (alertMarkers[id]) alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
+    if (alertMarkers[id]) {{
+        const popup = alertMarkers[id].getPopup();
+        if (popup) popup.setHTML(getAlertPopupContent(alert));
+    }}
 }});
 onChildRemoved(alertsRef, (data) => {{
     const id = data.key;
     if (alertMarkers[id]) {{
-        map.removeLayer(alertMarkers[id]);
+        removeMarker(alertMarkers[id]);
         delete alertMarkers[id];
     }}
 }});
 
-// Markers và incidents
+// Markers (ghi chú)
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1256,11 +1433,8 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
             return;
         }}
         if (isValidVNCoordinate(point.lat, point.lng)) {{
-            const marker = L.circleMarker([point.lat, point.lng], {{
-                radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
-                renderer: L.canvas()
-            }}).addTo(map);
-            marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
+            const el = createPointMarker();
+            const marker = addMarker(point.lng, point.lat, el, `<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
             pointMarkers[fullId] = marker;
         }}
     }});
@@ -1268,12 +1442,13 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
         const markerId = markerSnapshot.key;
         const fullId = `${{userId}}_${{markerId}}`;
         if (pointMarkers[fullId]) {{
-            map.removeLayer(pointMarkers[fullId]);
+            removeMarker(pointMarkers[fullId]);
             delete pointMarkers[fullId];
         }}
     }});
 }});
 
+// Incidents
 const incidentsRef = ref(db, 'incidents');
 onChildAdded(incidentsRef, (data) => {{
     const inc = data.val();
@@ -1284,35 +1459,33 @@ onChildAdded(incidentsRef, (data) => {{
         return;
     }}
     if (isValidVNCoordinate(inc.lat, inc.lng)) {{
-        const marker = L.marker([inc.lat, inc.lng], {{ icon: incidentIcon }})
-            .addTo(map)
-            .bindPopup(`<b>${{inc.created_by}}</b><br> ${{inc.note}}<br> <img src="${{inc.image_url}}" style="max-width:200px; max-height:200px;"><br> ${{new Date(inc.timestamp).toLocaleString()}}`);
+        const el = createIncidentMarker();
+        const marker = addMarker(inc.lng, inc.lat, el, `<b>${{inc.created_by}}</b><br> ${{inc.note}}<br> <img src="${{inc.image_url}}" style="max-width:200px; max-height:200px;"><br> ${{new Date(inc.timestamp).toLocaleString()}}`);
         incidentMarkers[id] = marker;
     }}
 }});
 onChildRemoved(incidentsRef, (data) => {{
     const id = data.key;
     if (incidentMarkers[id]) {{
-        map.removeLayer(incidentMarkers[id]);
+        removeMarker(incidentMarkers[id]);
         delete incidentMarkers[id];
     }}
 }});
 
-// === GHI CHÚ (GIỮ 2 GIÂY) CHỈ KHI KHÔNG Ở CHẾ ĐỘ CHỌN LỆNH ===
+// GHI CHÚ (GIỮ 2 GIÂY) CHỈ KHI KHÔNG Ở CHẾ ĐỘ CHỌN LỆNH
 if (userRole !== 'commander') {{
     let pressTimerMarker = null;
     map.on('touchstart', (e) => {{
-        // Nếu đang ở chế độ ra lệnh thì KHÔNG tạo ghi chú
         if (selectionMode) return;
-        const touch = e.originalEvent.touches[0];
-        const latlng = map.mouseEventToLatLng(touch);
+        const touch = e.touches[0];
+        const lngLat = map.unproject([touch.clientX, touch.clientY]);
         pressTimerMarker = setTimeout(() => {{
             const note = prompt("Nhập ghi chú cho điểm này:");
             if (note && note.trim()) {{
                 push(ref(db, 'markers/' + myUsername), {{
                     created_by: myName,
-                    lat: latlng.lat,
-                    lng: latlng.lng,
+                    lat: lngLat.lat,
+                    lng: lngLat.lng,
                     note: note,
                     timestamp: Date.now()
                 }});
@@ -1323,14 +1496,15 @@ if (userRole !== 'commander') {{
     map.on('touchcancel', () => clearTimeout(pressTimerMarker));
 }}
 map.on('contextmenu', (e) => {{
-    if (selectionMode) return;  // chặn khi đang chọn lệnh
-    e.originalEvent.preventDefault();
+    if (selectionMode) return;
+    e.preventDefault();
+    const lngLat = e.lngLat;
     const note = prompt("Nhập ghi chú cho điểm này:");
     if (note && note.trim()) {{
         push(ref(db, 'markers/' + myUsername), {{
             created_by: myName,
-            lat: e.latlng.lat,
-            lng: e.latlng.lng,
+            lat: lngLat.lat,
+            lng: lngLat.lng,
             note: note,
             timestamp: Date.now()
         }});
@@ -1343,7 +1517,7 @@ function loadUserTracks(userId, userName, show) {{
     const tracksQuery = query(tracksRef, limitToLast(30));
     if (!show) {{
         if (trackPolylines[userId]) {{
-            map.removeLayer(trackPolylines[userId]);
+            removeTrackPolyline(userId);
             delete trackPolylines[userId];
         }}
         if (trackListeners[userId]) {{
@@ -1354,21 +1528,23 @@ function loadUserTracks(userId, userName, show) {{
     }}
     if (trackListeners[userId]) return;
     trackListeners[userId] = true;
-    if (!trackPolylines[userId]) {{
-        const hue = (userName.split('').reduce((a,b) => a + b.charCodeAt(0), 0) * 31) % 360;
-        const color = `hsl(${{hue}}, 70%, 50%)`;
-        trackPolylines[userId] = L.polyline([], {{
-            color: color, weight: 3, opacity: 0.7, smoothFactor: 5, noClip: true, renderer: L.canvas()
-        }}).addTo(map);
-    }}
+    const points = [];
+    const hue = (userName.split('').reduce((a,b) => a + b.charCodeAt(0), 0) * 31) % 360;
+    const color = `hsl(${{hue}}, 70%, 50%)`;
     onChildAdded(tracksQuery, (snapshot) => {{
         const point = snapshot.val();
         if (point && point.lat && point.lng && isValidVNCoordinate(point.lat, point.lng)) {{
-            trackPolylines[userId].addLatLng([point.lat, point.lng]);
-            if (trackPolylines[userId].getLatLngs().length > 30) {{
-                const latlngs = trackPolylines[userId].getLatLngs();
-                const smoothed = latlngs.filter((_, i) => i % 2 === 0);
-                trackPolylines[userId].setLatLngs(smoothed);
+            points.push({{ lat: point.lat, lng: point.lng }});
+            if (points.length === 1) {{
+                // tạo polyline
+                addTrackPolyline(userId, points, color);
+                trackPolylines[userId] = true;
+            }} else {{
+                updateTrackPolyline(userId, points);
+            }}
+            if (points.length > 30) {{
+                points.shift();
+                updateTrackPolyline(userId, points);
             }}
         }}
     }});
@@ -1387,26 +1563,59 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
     const orderId = snapshot.key;
     if (!order || order.status !== 'active') return;
     if (!isValidVNCoordinate(order.toLat, order.toLng)) return;
-    const latlngs = [[order.fromLat, order.fromLng], [order.toLat, order.toLng]];
-    const polyline = L.polyline(latlngs, {{
-        color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10',
-        renderer: L.canvas()
-    }}).addTo(map);
-    if (polyline.arrowheads) polyline.arrowheads({{ size: '12px', frequency: 'all', color: '#ff8800' }});
-    const officerName = officerMarkers[order.officerId]?.getTooltip()?.getContent() || order.officerId;
-    polyline.bindPopup(`📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{officerName}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}`);
-    moveOrderLines[orderId] = polyline;
+    // Vẽ đường từ from đến to
+    const sourceId = `move-${orderId}`;
+    const layerId = `move-line-${orderId}`;
+    const geojson = {{
+        type: 'FeatureCollection',
+        features: [{{
+            type: 'Feature',
+            geometry: {{
+                type: 'LineString',
+                coordinates: [[order.fromLng, order.fromLat], [order.toLng, order.toLat]]
+            }}
+        }}]
+    }};
+    map.addSource(sourceId, {{
+        type: 'geojson',
+        data: geojson
+    }});
+    map.addLayer({{
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        layout: {{
+            'line-join': 'round',
+            'line-cap': 'round'
+        }},
+        paint: {{
+            'line-color': '#ff8800',
+            'line-width': 4,
+            'line-dasharray': [5, 10],
+            'line-opacity': 0.8
+        }}
+    }});
+    // Thêm popup khi click vào đường
+    map.on('click', layerId, (e) => {{
+        new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{order.officerId}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}`)
+            .addTo(map);
+    }});
+    moveOrderLines[orderId] = {{ sourceId, layerId }};
     if (order.officerId === myUsername) {{
-        L.popup()
-            .setLatLng([order.toLat, order.toLng])
-            .setContent(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}`)
-            .openOn(map);
+        new maplibregl.Popup()
+            .setLngLat([order.toLng, order.toLat])
+            .setHTML(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}`)
+            .addTo(map);
     }}
 }});
 onChildRemoved(moveOrdersRef, (snapshot) => {{
     const orderId = snapshot.key;
-    if (moveOrderLines[orderId]) {{
-        map.removeLayer(moveOrderLines[orderId]);
+    const line = moveOrderLines[orderId];
+    if (line) {{
+        if (map.getLayer(line.layerId)) map.removeLayer(line.layerId);
+        if (map.getSource(line.sourceId)) map.removeSource(line.sourceId);
         delete moveOrderLines[orderId];
     }}
 }});
@@ -1415,9 +1624,9 @@ function checkOrdersCompletion() {{
         const orders = snapshot.val() || {{}};
         for (const [orderId, order] of Object.entries(orders)) {{
             if (order.status !== 'active') continue;
-            const officer = officerMarkers[order.officerId];
-            if (!officer) continue;
-            const officerPos = officer.getLatLng();
+            const markerObj = officerMarkers[order.officerId];
+            if (!markerObj) continue;
+            const officerPos = markerObj.marker.getLngLat();
             const dist = haversine(officerPos.lat, officerPos.lng, order.toLat, order.toLng);
             if (dist < 20) {{
                 update(ref(db, 'move_orders/' + orderId), null);
@@ -1428,17 +1637,24 @@ function checkOrdersCompletion() {{
 setInterval(checkOrdersCompletion, 5000);
 
 function zoomToAllOfficers() {{
-    const markers = Object.values(officerMarkers);
+    const markers = Object.values(officerMarkers).map(m => m.marker.getLngLat());
     if (markers.length === 0) return;
-    const group = L.featureGroup(markers);
-    map.fitBounds(group.getBounds(), {{ padding: [50, 50], animate: false }});
+    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    markers.forEach(lngLat => {{
+        minLng = Math.min(minLng, lngLat.lng);
+        maxLng = Math.max(maxLng, lngLat.lng);
+        minLat = Math.min(minLat, lngLat.lat);
+        maxLat = Math.max(maxLat, lngLat.lat);
+    }});
+    const bounds = [[minLng, minLat], [maxLng, maxLat]];
+    map.fitBounds(bounds, {{ padding: 50, duration: 0 }});
 }}
 onValue(officersRef, (snapshot) => {{
     const officers = snapshot.val() || {{}};
     if (Object.keys(officers).length > 1) zoomToAllOfficers();
 }});
 
-// Xử lý pending order (chờ marker load)
+// Xử lý pending order
 if (window.pendingOrder && window.pendingOrder.officerId) {{
     const checkInterval = setInterval(() => {{
         if (officerMarkers[window.pendingOrder.officerId]) {{
@@ -1447,7 +1663,10 @@ if (window.pendingOrder && window.pendingOrder.officerId) {{
         }}
     }}, 200);
 }}
-</script> </body> </html> """
+</script>
+</body>
+</html>
+"""
 
 # ==============================
 # 21. TABS
