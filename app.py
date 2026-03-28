@@ -1004,7 +1004,12 @@ with st.container():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 12. MAP (NÂNG CẤP)
+# 12. LẤY MAPTILER KEY TỪ SECRETS
+# ==============================
+maptiler_key = st.secrets["maptiler"]["maptiler_key"]  # cần có trong .streamlit/secrets.toml
+
+# ==============================
+# 13. MAP (NÂNG CẤP VỚI MAPTILER)
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -1076,6 +1081,7 @@ const userRole = {user_role_json};
 const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
+const maptilerKey = "{maptiler_key}";
 
 function isValidVNCoordinate(lat, lng) {{
     if (typeof lat !== 'number' || typeof lng !== 'number') return false;
@@ -1123,17 +1129,18 @@ if (savedCenter && savedZoom) {{
         .setView([21.0285, 105.8542], 13);
 }}
 
-// LAYER CONTROL
-const darkLayer = L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-    maxZoom: 20,
-    attribution: '&copy; Stadia Maps'
-}});
-const streetLayer = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap'
-}});
-darkLayer.addTo(map);
-L.control.layers({{ "🌙 Dark": darkLayer, "🗺️ Street": streetLayer }}).addTo(map);
+// SỬ DỤNG MAPTILER LÀM LAYER DUY NHẤT
+const maptilerLayer = L.tileLayer(
+    'https://api.maptiler.com/maps/streets/{{z}}/{{x}}/{{y}}.png?key=' + maptilerKey,
+    {{
+        tileSize: 512,
+        zoomOffset: -1,
+        minZoom: 0,
+        maxZoom: 20,
+        attribution: '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> & <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+    }}
+).addTo(map);
+
 map.zoomControl.setPosition('bottomright');
 
 map.on('moveend', () => {{
@@ -1353,7 +1360,6 @@ onChildChanged(officersRef, (data) => {{
         const lat = start.lat + (end.lat - start.lat) * (step / steps);
         const lng = start.lng + (end.lng - start.lng) * (step / steps);
         marker.setLatLng([lat, lng]);
-        // Cập nhật lại icon (giữ tên)
         marker.setIcon(createOfficerMarker(lat, lng, officer.name, getOfficerColor(id)).options.icon);
         if (step < steps) requestAnimationFrame(animate);
     }}
@@ -1383,7 +1389,6 @@ function updateOnlineStatus() {{
             if (marker) {{
                 const lastUpdate = officers[uid].lastUpdate;
                 if (lastUpdate === 0 || now - lastUpdate > OFFLINE_TIMEOUT) {{
-                    // Đổi màu xám
                     marker.setIcon(createOfficerMarker(marker.getLatLng().lat, marker.getLatLng().lng, officers[uid].name, '#aaa').options.icon);
                 }} else {{
                     const originalColor = getOfficerColor(uid);
@@ -1659,6 +1664,6 @@ st.components.v1.html(map_html, height=800)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 13. AUTO REFRESH
+# 14. AUTO REFRESH
 # ==============================
 st_autorefresh(interval=10000, key="auto_refresh")
