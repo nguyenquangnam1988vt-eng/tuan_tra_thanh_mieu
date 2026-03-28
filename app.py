@@ -138,115 +138,65 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. ĐĂNG NHẬP & CSS NÂNG CẤP UI
+# 4. CẤU HÌNH TRANG VÀ CSS NÂNG CẤP
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
-# Thêm CSS để làm đẹp giao diện
+# === CSS TỔNG THỂ ===
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .stApp {
-        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-    }
-    
-    /* Sidebar đẹp hơn */
-    section[data-testid="stSidebar"] {
-        background: rgba(15, 32, 39, 0.85);
-        backdrop-filter: blur(10px);
-        border-right: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    /* Button gradient */
-    .stButton button {
-        border-radius: 12px;
-        background: linear-gradient(135deg, #ff8800, #ff5500);
-        color: white;
-        font-weight: 600;
-        border: none;
-        transition: all 0.3s ease;
-    }
-    .stButton button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 0 12px rgba(255,136,0,0.5);
-    }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        background: rgba(255,255,255,0.1);
-        border-radius: 12px;
-        color: white;
-    }
-    .streamlit-expanderContent {
-        background: rgba(0,0,0,0.3);
-        border-radius: 12px;
-        padding: 10px;
-    }
-    
-    /* Tabs đẹp hơn */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-        background: rgba(0,0,0,0.3);
-        border-radius: 12px;
-        padding: 5px 15px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 20px;
-        color: white;
-        font-weight: 600;
-    }
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #ff8800, #ff5500);
-        color: white;
-    }
-    
-    /* Chat bubble */
-    .chat-bubble {
-        border-radius: 15px;
-        padding: 10px 15px;
-        margin: 5px 0;
-        max-width: 70%;
-        word-wrap: break-word;
-    }
-    .chat-bubble.me {
-        background: linear-gradient(135deg, #ff8800, #ff5500);
-        color: white;
-        margin-left: auto;
-        border-bottom-right-radius: 4px;
-    }
-    .chat-bubble.other {
-        background: #f1f0f0;
-        color: #333;
-        border-bottom-left-radius: 4px;
-    }
-    
-    /* Scrollbar */
-    ::-webkit-scrollbar {
-        width: 6px;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #ff8800;
-        border-radius: 3px;
-    }
-    
-    /* Map container */
-    .map-container {
-        border-radius: 20px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        margin-top: 10px;
-    }
-    
-    /* Title */
-    h1 {
-        color: white;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
+/* FONT */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+/* MAIN BACKGROUND */
+.stApp {
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+}
+
+/* SIDEBAR */
+section[data-testid="stSidebar"] {
+    background: rgba(15, 32, 39, 0.95);
+    color: white;
+}
+
+/* BUTTON */
+.stButton button {
+    border-radius: 12px;
+    background: linear-gradient(135deg, #ff8800, #ff5500);
+    color: white;
+    font-weight: 600;
+    border: none;
+    padding: 8px 16px;
+    transition: all 0.3s ease;
+}
+
+.stButton button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 10px rgba(255,136,0,0.6);
+}
+
+/* INPUT */
+input, textarea {
+    border-radius: 10px !important;
+}
+
+/* TITLE */
+h1, h2, h3 {
+    color: white;
+}
+
+/* SCROLLBAR */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -685,7 +635,7 @@ def detect_stationary_officers():
         return []
 
 # ==============================
-# 12. SIDEBAR CÔNG CỤ
+# 12. SIDEBAR CÔNG CỤ (giữ nguyên nhưng sẽ có CSS đẹp hơn)
 # ==============================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🚨 Công cụ phối hợp")
@@ -850,48 +800,49 @@ if user_role == "admin":
             st.sidebar.info("Không có user nào")
 
 # ==============================
-# 15. LOAD DỮ LIỆU
+# 15. LOAD DỮ LIỆU (có spinner)
 # ==============================
-@st.cache_data(ttl=5)
-def load_officers():
-    try:
-        result = db.child("officers").get().val()
-        if result:
-            filtered = {uid: data for uid, data in result.items()
-                        if is_valid_coordinate(data.get("lat"), data.get("lng"))}
-            return filtered
-        return {}
-    except Exception as e:
-        st.error(f"Lỗi Firebase: {e}")
-        return {}
+with st.spinner("🔄 Đang tải dữ liệu..."):
+    @st.cache_data(ttl=5)
+    def load_officers():
+        try:
+            result = db.child("officers").get().val()
+            if result:
+                filtered = {uid: data for uid, data in result.items()
+                            if is_valid_coordinate(data.get("lat"), data.get("lng"))}
+                return filtered
+            return {}
+        except Exception as e:
+            st.error(f"Lỗi Firebase: {e}")
+            return {}
 
-def load_all_markers():
-    try:
-        all_markers = db.child("markers").get().val()
-        markers_dict = {}
-        if all_markers:
-            for uid, user_markers in all_markers.items():
-                if user_markers and isinstance(user_markers, dict):
-                    for key, marker in user_markers.items():
-                        if isinstance(marker, dict) and marker.get("timestamp") and is_valid_coordinate(marker.get("lat"), marker.get("lng")):
-                            markers_dict[key] = marker
-        return markers_dict
-    except Exception as e:
-        st.error(f"Lỗi đọc markers: {e}")
-        return {}
+    def load_all_markers():
+        try:
+            all_markers = db.child("markers").get().val()
+            markers_dict = {}
+            if all_markers:
+                for uid, user_markers in all_markers.items():
+                    if user_markers and isinstance(user_markers, dict):
+                        for key, marker in user_markers.items():
+                            if isinstance(marker, dict) and marker.get("timestamp") and is_valid_coordinate(marker.get("lat"), marker.get("lng")):
+                                markers_dict[key] = marker
+            return markers_dict
+        except Exception as e:
+            st.error(f"Lỗi đọc markers: {e}")
+            return {}
 
-def load_incidents():
-    try:
-        incidents = db.child("incidents").get().val()
-        incidents_dict = {}
-        if incidents:
-            for key, inc in incidents.items():
-                if isinstance(inc, dict) and inc.get("timestamp") and is_valid_coordinate(inc.get("lat"), inc.get("lng")):
-                    incidents_dict[key] = inc
-        return incidents_dict
-    except Exception as e:
-        st.error(f"Lỗi đọc incidents: {e}")
-        return {}
+    def load_incidents():
+        try:
+            incidents = db.child("incidents").get().val()
+            incidents_dict = {}
+            if incidents:
+                for key, inc in incidents.items():
+                    if isinstance(inc, dict) and inc.get("timestamp") and is_valid_coordinate(inc.get("lat"), inc.get("lng")):
+                        incidents_dict[key] = inc
+            return incidents_dict
+        except Exception as e:
+            st.error(f"Lỗi đọc incidents: {e}")
+            return {}
 
 # ==============================
 # 16. AUTO REFRESH
@@ -960,7 +911,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 20. MAP HTML (giữ nguyên, chỉ thêm class container)
+# 20. MAP HTML (NÂNG CẤP MARKER, HIỆU ỨNG, ALERT)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -973,11 +924,30 @@ map_html = f"""
     #map {{ height: 600px; width: 100%; }} 
     .leaflet-container {{ will-change: transform; }} 
     .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} 
-    .alert-marker {{ width: 24px; height: 24px; background: red; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px red; animation: blink 1s infinite; }} 
-    @keyframes blink {{ 0% {{ transform: scale(1); opacity: 1; }} 50% {{ transform: scale(1.4); opacity: 0.6; }} 100% {{ transform: scale(1); opacity: 1; }} }} 
+    .alert-marker {{
+        width: 24px;
+        height: 24px;
+        background: red;
+        border-radius: 50%;
+        border: 3px solid white;
+        box-shadow: 0 0 20px red;
+        animation: pulse 1s infinite;
+    }}
+    @keyframes pulse {{
+        0% {{ transform: scale(1); opacity: 1; }}
+        50% {{ transform: scale(1.5); opacity: 0.5; }}
+        100% {{ transform: scale(1); opacity: 1; }}
+    }}
     .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} 
     .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} 
     .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} 
+    /* HIỆU ỨNG HOVER MARKER */
+    .leaflet-marker-icon {{
+        transition: transform 0.2s ease;
+    }}
+    .leaflet-marker-icon:hover {{
+        transform: scale(1.3);
+    }}
     /* CHẶN BÔI ĐEN SAFARI */
     * {{
         -webkit-user-select: none;
@@ -1218,7 +1188,7 @@ function deactivateSelectionMode() {{
     hasSelected = false;
 }}
 
-// Thêm marker officer
+// Thêm marker officer với icon glow
 onChildAdded(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
@@ -1227,16 +1197,24 @@ onChildAdded(officersRef, (data) => {{
         return;
     }}
     const color = getOfficerColor(id);
-    const marker = L.circleMarker([officer.lat, officer.lng], {{
-        radius: 7,
-        color: color,
-        fillColor: color,
-        fillOpacity: 0.9,
-        weight: 1,
-        renderer: L.canvas()
-    }}).addTo(map);
+    const icon = L.divIcon({{
+        className: '',
+        html: `
+            <div style="
+                background:${color};
+                width:22px;
+                height:22px;
+                border-radius:50%;
+                border:3px solid white;
+                box-shadow:0 0 12px ${color};
+            "></div>
+        `,
+        iconSize: [22, 22],
+        popupAnchor: [0, -11]
+    }});
+    const marker = L.marker([officer.lat, officer.lng], {{ icon: icon }}).addTo(map);
     marker.bindTooltip(officer.name, {{
-        permanent: true, direction: 'top', offset: [0, -8], className: 'officer-label'
+        permanent: true, direction: 'top', offset: [0, -15], className: 'officer-label'
     }});
     
     officerMarkers[id] = marker;
@@ -1263,6 +1241,24 @@ onChildChanged(officersRef, (data) => {{
         const lat = start.lat + (end.lat - start.lat) * (step / steps);
         const lng = start.lng + (end.lng - start.lng) * (step / steps);
         marker.setLatLng([lat, lng]);
+        // Cập nhật lại icon (giữ màu)
+        const color = getOfficerColor(id);
+        const icon = L.divIcon({{
+            className: '',
+            html: `
+                <div style="
+                    background:${color};
+                    width:22px;
+                    height:22px;
+                    border-radius:50%;
+                    border:3px solid white;
+                    box-shadow:0 0 12px ${color};
+                "></div>
+            `,
+            iconSize: [22, 22],
+            popupAnchor: [0, -11]
+        }});
+        marker.setIcon(icon);
         if (step < steps) requestAnimationFrame(animate);
     }}
     animate();
@@ -1291,10 +1287,41 @@ function updateOnlineStatus() {{
             if (marker) {{
                 const lastUpdate = officers[uid].lastUpdate;
                 if (lastUpdate === 0 || now - lastUpdate > OFFLINE_TIMEOUT) {{
-                    marker.setStyle({{ color: '#aaa', fillColor: '#aaa' }});
+                    // Đổi màu xám
+                    const icon = L.divIcon({{
+                        className: '',
+                        html: `
+                            <div style="
+                                background:#aaa;
+                                width:22px;
+                                height:22px;
+                                border-radius:50%;
+                                border:3px solid white;
+                                box-shadow:0 0 12px #aaa;
+                            "></div>
+                        `,
+                        iconSize: [22, 22],
+                        popupAnchor: [0, -11]
+                    }});
+                    marker.setIcon(icon);
                 }} else {{
                     const originalColor = getOfficerColor(uid);
-                    marker.setStyle({{ color: originalColor, fillColor: originalColor }});
+                    const icon = L.divIcon({{
+                        className: '',
+                        html: `
+                            <div style="
+                                background:${originalColor};
+                                width:22px;
+                                height:22px;
+                                border-radius:50%;
+                                border:3px solid white;
+                                box-shadow:0 0 12px ${originalColor};
+                            "></div>
+                        `,
+                        iconSize: [22, 22],
+                        popupAnchor: [0, -11]
+                    }});
+                    marker.setIcon(icon);
                 }}
             }}
         }});
@@ -1350,7 +1377,7 @@ onChildRemoved(alertsRef, (data) => {{
     }}
 }});
 
-// Markers và incidents
+// Markers và incidents (giữ nguyên)
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1559,15 +1586,12 @@ if (window.pendingOrder && window.pendingOrder.officerId) {{
 </script> </body> </html> """
 
 # ==============================
-# 21. TABS VỚI MAP VÀ CHAT
+# 21. TABS (CHAT UI ĐÃ NÂNG CẤP)
 # ==============================
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
 
 with tab1:
-    # Thêm container để bo góc map
-    st.markdown('<div class="map-container">', unsafe_allow_html=True)
     st.components.v1.html(map_html, height=620)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
     st.subheader("💬 Chat nội bộ")
@@ -1590,17 +1614,26 @@ with tab2:
                 msg["timestamp"]/1000, tz=timezone(timedelta(hours=7))
             ).strftime("%H:%M")
             is_me = (msg["from"] == username)
-            if is_me:
-                st.markdown(
-                    f'<div class="chat-bubble me"><b>{msg["name"]}</b> {vn_time}<br>{msg["message"]}</div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f'<div class="chat-bubble other"><b>{msg["name"]}</b> {vn_time}<br>{msg["message"]}</div>',
-                    unsafe_allow_html=True
-                )
-        # Scroll to bottom (có thể dùng JS)
+            align = "right" if is_me else "left"
+            bg_color = "#dcf8c6" if is_me else "#f1f0f0"
+            # Chat bubble nâng cấp với shadow, border-radius
+            st.markdown(
+                f"""
+                <div style='display: flex; justify-content: {align}; margin:5px;'>
+                    <div style='
+                        background-color: {bg_color};
+                        padding: 10px 15px;
+                        border-radius: 15px;
+                        max-width: 70%;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                    '>
+                        <b>{msg['name']}</b> <span style='font-size:11px; color:gray'>{vn_time}</span><br>
+                        {msg['message']}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         st.markdown("<script>window.scrollTo(0, document.body.scrollHeight);</script>", unsafe_allow_html=True)
     else:
         st.info("Chưa có tin nhắn nào.")
