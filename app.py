@@ -856,7 +856,7 @@ else:
 # ==============================
 # 20. MAP HTML (MapLibre GL JS) - ĐÃ SỬA LỖI TRẮNG
 # ==============================
-maptiler_key = st.secrets["maptiler_key"]
+maptiler_key = st.secrets["maptiler"]["api_key"]
 map_html = f"""
 <!DOCTYPE html>
 <html>
