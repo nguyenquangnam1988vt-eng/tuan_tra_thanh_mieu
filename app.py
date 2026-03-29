@@ -275,7 +275,7 @@ for uid, data in config["credentials"]["usernames"].items():
     else:
         user_colors[uid] = data.get("color", "#0066cc")
 
-# Xóa dữ liệu vị trí cũ nếu quá hạn 5 phút
+# Xóa dữ liệu vị trí cũ nếu quá hạn (5 phút)
 existing = db.child("officers").child(username).get().val()
 if existing:
     last_update = existing.get("lastUpdate")
@@ -285,8 +285,6 @@ if existing:
         st.sidebar.info("Đã xóa dữ liệu vị trí cũ (quá hạn). Vui lòng bắt đầu chia sẻ lại.")
     else:
         st.sidebar.info("Đã khôi phục vị trí từ phiên trước.")
-else:
-    pass
 
 db.child("users").child(username).set({
     "name": name,
@@ -582,7 +580,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 10. CLEANUP
+# 10. CLEANUP (5 phút)
 # ==============================
 def cleanup_old_data():
     try:
@@ -592,6 +590,7 @@ def cleanup_old_data():
             for key, inc in incidents.items():
                 if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
                     db.child("incidents").child(key).remove()
+        # Xóa alerts cũ hơn 1 giờ (dự phòng, nhưng thường đã xóa khi nhận nhiệm vụ)
         alerts = db.child("alerts").get().val()
         if alerts:
             now = int(time.time() * 1000)
@@ -683,7 +682,7 @@ def detect_stationary_officers():
         return []
 
 # ==============================
-# 12. SIDEBAR
+# 12. SIDEBAR (nhận nhiệm vụ sẽ xóa alert)
 # ==============================
 st.sidebar.markdown('<div class="sidebar-group"><h3>🚨 ĐIỀU HÀNH</h3></div>', unsafe_allow_html=True)
 with st.sidebar:
@@ -726,18 +725,29 @@ with st.sidebar:
                 assigned = alert.get("assigned", [])
                 if username in assigned and alert.get("status") == "pending":
                     try:
-                        db.child("alerts").child(key).update({
-                            "status": "accepted",
-                            "accepted_by": name
-                        })
+                        # Lưu vào resolved_alerts để lịch sử
+                        resolved_data = {
+                            "original_id": key,
+                            "name": alert.get("name"),
+                            "lat": alert.get("lat"),
+                            "lng": alert.get("lng"),
+                            "assigned": assigned,
+                            "accepted_by": name,
+                            "accepted_at": int(time.time() * 1000),
+                            "timestamp": alert.get("timestamp")
+                        }
+                        db.child("resolved_alerts").push(resolved_data)
+                        # Xóa alert khỏi node alerts
+                        db.child("alerts").child(key).remove()
+                        # Gửi tin nhắn hệ thống
                         chat_message = {
                             "from": "system",
                             "name": "Hệ thống",
-                            "message": f"✅ {name} đã nhận báo động từ {alert.get('name', 'cán bộ')}",
+                            "message": f"✅ {name} đã nhận và xử lý báo động từ {alert.get('name', 'cán bộ')}",
                             "timestamp": int(time.time() * 1000)
                         }
                         db.child("messages").push(chat_message)
-                        st.success(f"✅ Đã nhận nhiệm vụ từ {alert.get('name', 'cán bộ')}")
+                        st.success(f"✅ Đã nhận và xóa báo động từ {alert.get('name', 'cán bộ')}")
                         found = True
                         time.sleep(0.5)
                         st.rerun()
@@ -973,7 +983,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ FIX ALERT)
+# 17. MAP HTML HOÀN CHỈNH (ĐÃ FIX ALERTS)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1013,6 +1023,7 @@ const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
 
+// Biến toàn cục
 let map = null;
 let officerMarkers = {{}};
 let alertMarkers = {{}};
@@ -1022,6 +1033,7 @@ let incidentMarkers = {{}};
 let trackPolylines = {{}};
 let trackListeners = {{}};
 let moveOrderLines = {{}};
+let zoomedToMe = false;
 let selectionMode = false;
 let selectedOfficerId = null;
 let selectedOfficerName = null;
@@ -1049,6 +1061,7 @@ function haversine(lat1, lng1, lat2, lng2) {{
     return R * c;
 }}
 
+// Khởi tạo audio
 function initAudio() {{
     if (alertSound) return;
     alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
@@ -1174,7 +1187,6 @@ function removeOfficerMarkerIfExists(uid) {{
     if (officerMarkers[uid]) {{
         map.removeLayer(officerMarkers[uid]);
         delete officerMarkers[uid];
-        console.log(`🗑️ Đã xóa marker cũ cho ${{uid}}`);
     }}
 }}
 
@@ -1251,7 +1263,7 @@ function updateOnlineStatus() {{
 }}
 setInterval(updateOnlineStatus, 30000);
 
-// ==================== ALERTS - FIX FULL ====================
+// ==================== ALERTS - FIX FULL (xóa khi nhận nhiệm vụ) ====================
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 
@@ -1267,14 +1279,12 @@ function getAlertPopupContent(alert) {{
         const distance = haversine(myLatLng.lat, myLatLng.lng, alert.lat, alert.lng);
         distanceText = `<br>Khoảng cách: ${{(distance/1000).toFixed(2)}} km`;
     }}
-
     let statusText = "";
     if (alert.status === "pending") statusText = "🟥 Chưa xử lý";
     else if (alert.status === "accepted") statusText = `🟨 Đang xử lý bởi ${{alert.accepted_by || ""}}`;
     else if (alert.status === "resolved") statusText = "🟩 Đã xong";
     else if (alert.status === "expired") statusText = "⏰ Hết hạn";
     else statusText = "Không rõ";
-
     return `🚨 <b>Báo động từ ${{alert.name}}</b><br>
             Trạng thái: ${{statusText}}
             ${{distanceText}}<br>
@@ -1291,43 +1301,33 @@ const alertIcon = L.divIcon({{
 onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
-
     if (!alert.timestamp || alert.timestamp < oneDayAgo) return;
     if (!isValidVNCoordinate(alert.lat, alert.lng)) return;
-
     if (!alertMarkers[id]) {{
         const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
             .addTo(map)
             .bindPopup(getAlertPopupContent(alert));
         alertMarkers[id] = marker;
     }}
-
     const now = Date.now();
     const isMyAlert = (alert.created_by === myUsername);
     const isRecent = (now - alert.timestamp) < 15000;
-
     if (!isMyAlert && isRecent && !playedAlerts.has(id)) {{
         playedAlerts.add(id);
         savePlayedAlerts();
-
         if (audioActivated && alertSound) {{
             alertSound.currentTime = 0;
             alertSound.play().catch(() => {{}});
-        }} else {{
-            console.log("⚠️ Click vào màn hình để bật âm thanh");
         }}
-
         if (!map._animatingZoom) {{
             map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
         }}
-
         setTimeout(() => {{
             if (alertSound && !alertSound.paused) {{
                 alertSound.pause();
                 alertSound.currentTime = 0;
             }}
         }}, 15000);
-
         alertTimeouts[id] = setTimeout(() => {{
             get(ref(db, 'alerts/' + id)).then((snapshot) => {{
                 const currentAlert = snapshot.val();
@@ -1343,10 +1343,8 @@ onChildAdded(alertsRef, (data) => {{
 onChildChanged(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
-
     if (alertMarkers[id]) {{
         alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
-
         if (["accepted", "resolved", "expired"].includes(alert.status)) {{
             removeAlertMarker(id);
         }}
@@ -1562,7 +1560,6 @@ function activateSelectionMode(officerId, officerName) {{
     selectedOfficerId = officerId;
     selectedOfficerName = officerName;
     hasSelected = false;
-
     const infoControl = L.control({{ position: 'topright' }});
     infoControl.onAdd = () => {{
         const div = L.DomUtil.create('div', 'selection-info');
@@ -1576,18 +1573,11 @@ function activateSelectionMode(officerId, officerName) {{
     }};
     infoControl.addTo(map);
     tempInfoControl = infoControl;
-
     setTimeout(() => {{
         const cancelBtn = document.getElementById('cancel-order-btn');
-        if (cancelBtn) {{
-            cancelBtn.onclick = () => {{
-                deactivateSelectionMode();
-            }};
-        }}
+        if (cancelBtn) cancelBtn.onclick = () => deactivateSelectionMode();
     }}, 100);
-
     map.getContainer().style.cursor = 'crosshair';
-
     map.on('touchstart', (e) => {{
         if (!selectionMode || hasSelected) return;
         const touch = e.originalEvent.touches[0];
@@ -1620,14 +1610,9 @@ function activateSelectionMode(officerId, officerName) {{
             deactivateSelectionMode();
         }}, 5000);
     }});
-    map.on('touchend', () => {{
-        clearTimeout(holdTimer);
-    }});
-    map.on('touchcancel', () => {{
-        clearTimeout(holdTimer);
-    }});
+    map.on('touchend', () => clearTimeout(holdTimer));
+    map.on('touchcancel', () => clearTimeout(holdTimer));
 }}
-
 function deactivateSelectionMode() {{
     if (!selectionMode) return;
     if (tempInfoControl) map.removeControl(tempInfoControl);
@@ -1639,7 +1624,6 @@ function deactivateSelectionMode() {{
     tempInfoControl = null;
     hasSelected = false;
 }}
-
 if (window.pendingOrder && window.pendingOrder.officerId) {{
     const checkInterval = setInterval(() => {{
         if (officerMarkers[window.pendingOrder.officerId]) {{
