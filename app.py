@@ -11,7 +11,6 @@ from datetime import datetime, timezone, timedelta
 import base64
 import requests
 import math
-import uuid
 
 # ==============================
 # 0. HÀM TIỆN ÍCH
@@ -272,6 +271,13 @@ for uid, data in config["credentials"]["usernames"].items():
     else:
         user_colors[uid] = data.get("color", "#0066cc")
 
+# Xóa dữ liệu vị trí cũ của người dùng khi đăng nhập lại
+try:
+    db.child("officers").child(username).remove()
+    print(f"Đã xóa dữ liệu vị trí cũ của {username}")
+except Exception as e:
+    print(f"Lỗi xóa dữ liệu cũ: {e}")
+
 db.child("users").child(username).set({
     "name": name,
     "role": user_role,
@@ -313,7 +319,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. GPS SCRIPT (giữ nguyên, nhưng bỏ phần alert_requests)
+# 8. GPS SCRIPT (xóa dữ liệu khi mất kết nối)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -325,7 +331,6 @@ if st.session_state.sharing:
         update, 
         push, 
         onDisconnect, 
-        onChildAdded,
         serverTimestamp
     }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
@@ -336,6 +341,9 @@ if st.session_state.sharing:
     const username = "{username}";
     const officerName = "{name}";
     const officerRef = ref(database, 'officers/' + username);
+
+    // Quan trọng: xóa hoàn toàn dữ liệu khi mất kết nối
+    onDisconnect(officerRef).remove();
 
     update(officerRef, {{
         name: officerName,
@@ -477,10 +485,6 @@ if st.session_state.sharing:
                 accuracy: accuracy,
                 lastUpdate: serverTimestamp()
             }});
-            onDisconnect(officerRef).update({{
-                lastUpdate: 0,
-                offlineAt: serverTimestamp()
-            }});
 
             if (now - lastSendTime < SEND_INTERVAL) return;
             lastSendTime = now;
@@ -563,7 +567,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 10. CLEANUP
+# 10. CLEANUP (giảm thời gian xuống 2 phút)
 # ==============================
 def cleanup_old_data():
     try:
@@ -573,7 +577,7 @@ def cleanup_old_data():
             for key, inc in incidents.items():
                 if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
                     db.child("incidents").child(key).remove()
-        # Xóa alerts cũ quá 1 giờ
+        
         alerts = db.child("alerts").get().val()
         if alerts:
             now = int(time.time() * 1000)
@@ -589,11 +593,13 @@ def cleanup_offline_officers():
         if not officers:
             return
         now = int(time.time() * 1000)
-        limit = 30 * 60 * 1000
+        # Giảm thời gian xuống 2 phút (120000 ms)
+        limit = 2 * 60 * 1000
         for uid, data in officers.items():
-            offline_at = data.get("offlineAt")
-            if offline_at and now - offline_at > limit:
+            last_update = data.get("lastUpdate")
+            if last_update and now - int(last_update) > limit:
                 db.child("officers").child(uid).remove()
+                print(f"Đã xóa officer {uid} do không cập nhật vị trí")
     except Exception as e:
         print("Cleanup offline officers error:", e)
 
@@ -628,7 +634,7 @@ def limit_tracks():
     except Exception as e:
         print("Limit tracks error:", e)
 
-if "last_cleanup" not in st.session_state or time.time() - st.session_state.last_cleanup > 300:
+if "last_cleanup" not in st.session_state or time.time() - st.session_state.last_cleanup > 60:
     cleanup_old_data()
     cleanup_offline_officers()
     cleanup_old_tracks()
@@ -636,7 +642,7 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 11. STATIONARY OFFICERS
+# 11. STATIONARY OFFICERS (chỉ hiển thị người còn online)
 # ==============================
 def detect_stationary_officers():
     try:
@@ -644,12 +650,14 @@ def detect_stationary_officers():
         if not officers:
             return []
         now = int(time.time() * 1000)
+        # Chỉ xét người cập nhật trong 60 giây gần nhất
+        online_limit = 60 * 1000
         threshold = 15 * 60 * 1000
         stationary = []
         for uid, data in officers.items():
-            if is_valid_coordinate(data.get("lat"), data.get("lng")):
-                last = data.get("lastUpdate")
-                if last and (now - int(last)) > threshold:
+            last = data.get("lastUpdate")
+            if last and (now - int(last)) < online_limit and is_valid_coordinate(data.get("lat"), data.get("lng")):
+                if (now - int(last)) > threshold:
                     stationary.append({
                         "uid": uid,
                         "name": data.get("name"),
@@ -674,7 +682,6 @@ with st.sidebar:
             lat = user_data["lat"]
             lng = user_data["lng"]
             nearest = find_nearest_officers(lat, lng)
-            # Tạo alert trực tiếp, không qua alert_requests
             alert_data = {
                 "name": name,
                 "lat": lat,
@@ -684,9 +691,7 @@ with st.sidebar:
                 "timestamp": int(time.time() * 1000),
                 "created_by": username
             }
-            # Tạo key duy nhất để tránh trùng
-            alert_key = db.child("alerts").push(alert_data)
-            # Gửi FCM cho các cán bộ được assigned
+            db.child("alerts").push(alert_data)
             server_key = st.secrets.get("fcm", {}).get("server_key", "")
             if server_key:
                 tokens = db.child("fcm_tokens").get().val() or {}
@@ -846,7 +851,7 @@ with st.sidebar:
         st.session_state.show_tracks = {}
 
 # ==============================
-# 13. LOAD DỮ LIỆU
+# 13. LOAD DỮ LIỆU (chỉ hiển thị người online)
 # ==============================
 with st.spinner("🔄 Đang tải dữ liệu..."):
     @st.cache_data(ttl=5)
@@ -854,8 +859,14 @@ with st.spinner("🔄 Đang tải dữ liệu..."):
         try:
             result = db.child("officers").get().val()
             if result:
-                filtered = {uid: data for uid, data in result.items()
-                            if is_valid_coordinate(data.get("lat"), data.get("lng"))}
+                now = int(time.time() * 1000)
+                online_limit = 60 * 1000  # 60 giây
+                filtered = {}
+                for uid, data in result.items():
+                    last_update = data.get("lastUpdate")
+                    if last_update and (now - int(last_update)) < online_limit:
+                        if is_valid_coordinate(data.get("lat"), data.get("lng")):
+                            filtered[uid] = data
                 return filtered
             return {}
         except Exception as e:
@@ -924,10 +935,13 @@ user_role_json = json.dumps(user_role)
 try:
     officers_old = db.child("officers").get().val()
     if officers_old:
+        now = int(time.time() * 1000)
+        online_limit = 60 * 1000
         for uid, data in officers_old.items():
-            if not is_valid_coordinate(data.get("lat"), data.get("lng")):
+            last_update = data.get("lastUpdate")
+            if last_update and (now - int(last_update)) > online_limit:
                 db.child("officers").child(uid).remove()
-                print(f"Đã xóa officer {uid} có tọa độ lỗi")
+                print(f"Đã xóa officer {uid} do quá hạn online")
 except Exception as e:
     print("Cleanup error:", e)
 
@@ -947,7 +961,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML (SỬA LỖI ÂM THANH KHI RELOAD)
+# 17. MAP HTML (SỬA TRIỆT ĐỂ MARKER MA + ÂM THANH)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -987,6 +1001,27 @@ const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
 
+// Biến toàn cục
+let map = null;
+let officerMarkers = {{}};
+let alertMarkers = {{}};
+let alertTimeouts = {{}};
+let playedAlerts = new Set();
+let pointMarkers = {{}};
+let incidentMarkers = {{}};
+let trackPolylines = {{}};
+let trackListeners = {{}};
+let moveOrderLines = {{}};
+let zoomedToMe = false;
+let selectionMode = false;
+let selectedOfficerId = null;
+let selectedOfficerName = null;
+let tempInfoControl = null;
+let hasSelected = false;
+let holdTimer = null;
+let alertSound = null;
+let audioActivated = false;
+
 function isValidVNCoordinate(lat, lng) {{
     if (typeof lat !== 'number' || typeof lng !== 'number') return false;
     if (lat === 0 && lng === 0) return false;
@@ -1004,12 +1039,101 @@ function haversine(lat1, lng1, lat2, lng2) {{
     return R * c;
 }}
 
+// Khởi tạo audio
+function initAudio() {{
+    if (alertSound) return;
+    alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
+    alertSound.preload = "auto";
+    alertSound.loop = false;  // KHÔNG lặp
+}}
+
+// Dừng âm thanh an toàn
+function stopAlertSound() {{
+    if (alertSound && !alertSound.paused) {{
+        alertSound.pause();
+        alertSound.currentTime = 0;
+        console.log("🔇 Đã dừng âm thanh báo động");
+    }}
+}}
+
+// Xóa marker báo động và dừng âm thanh nếu cần
+function removeAlertMarker(alertId) {{
+    if (alertMarkers[alertId]) {{
+        map.removeLayer(alertMarkers[alertId]);
+        delete alertMarkers[alertId];
+        console.log(`🗑️ Đã xóa marker báo động: ${{alertId}}`);
+    }}
+    if (alertTimeouts[alertId]) {{
+        clearTimeout(alertTimeouts[alertId]);
+        delete alertTimeouts[alertId];
+    }}
+    // Nếu không còn alert nào, dừng âm thanh
+    if (Object.keys(alertMarkers).length === 0) {{
+        stopAlertSound();
+    }}
+}}
+
+// Tạo marker officer
+function createOfficerIcon(color) {{
+    return L.divIcon({{
+        className: '',
+        html: `<div style="background:${{color}}; width:22px; height:22px; border-radius:50%; border:3px solid white; box-shadow:0 0 12px ${{color}};"></div>`,
+        iconSize: [22, 22],
+        popupAnchor: [0, -12]
+    }});
+}}
+
+function getOfficerColor(uid) {{
+    return userColors[uid] || '#0066cc';
+}}
+
+// Khởi tạo map
+function initMap() {{
+    const savedCenter = sessionStorage.getItem('mapCenter');
+    const savedZoom = sessionStorage.getItem('mapZoom');
+    if (savedCenter && savedZoom) {{
+        map = L.map('map', {{ preferCanvas: true, zoomAnimation: false, fadeAnimation: false, inertia: false }})
+            .setView(JSON.parse(savedCenter), parseInt(savedZoom));
+    }} else {{
+        map = L.map('map', {{ preferCanvas: true, zoomAnimation: false, fadeAnimation: false, inertia: false }})
+            .setView([21.0285, 105.8542], 13);
+    }}
+    L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20,
+        updateWhenZooming: false
+    }}).addTo(map);
+    
+    map.on('moveend', () => {{
+        const center = map.getCenter();
+        sessionStorage.setItem('mapCenter', JSON.stringify([center.lat, center.lng]));
+        sessionStorage.setItem('mapZoom', map.getZoom());
+    }});
+    
+    if (navigator.geolocation && !sessionStorage.getItem('zoomedToMe')) {{
+        navigator.geolocation.getCurrentPosition(
+            (position) => {{
+                const {{ latitude: lat, longitude: lng }} = position.coords;
+                if (isValidVNCoordinate(lat, lng)) {{
+                    map.setView([lat, lng], 16);
+                    sessionStorage.setItem('zoomedToMe', 'true');
+                }}
+            }},
+            (error) => console.warn("GPS fallback error:", error),
+            {{ enableHighAccuracy: true, timeout: 10000 }}
+        );
+    }}
+}}
+
+// Khởi tạo NoSleep
 let noSleep = new NoSleep();
 document.addEventListener('click', function enableNoSleep() {{
     noSleep.enable();
     document.removeEventListener('click', enableNoSleep);
 }});
 
+// FCM
 if ('serviceWorker' in navigator && "{fcm_vapid_key}" !== "") {{
     navigator.serviceWorker.register('/firebase-messaging-sw.js')
         .then(registration => getToken(messaging, {{ vapidKey: "{fcm_vapid_key}" }}))
@@ -1022,97 +1146,20 @@ onMessage(messaging, payload => {{
     new Notification(payload.notification.title, {{ body: payload.notification.body }});
 }});
 
-const savedCenter = sessionStorage.getItem('mapCenter');
-const savedZoom = sessionStorage.getItem('mapZoom');
-let map;
-if (savedCenter && savedZoom) {{
-    map = L.map('map', {{ preferCanvas: true, zoomAnimation: false, fadeAnimation: false, inertia: false }})
-        .setView(JSON.parse(savedCenter), parseInt(savedZoom));
-}} else {{
-    map = L.map('map', {{ preferCanvas: true, zoomAnimation: false, fadeAnimation: false, inertia: false }})
-        .setView([21.0285, 105.8542], 13);
-}}
-L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 20,
-    updateWhenZooming: false
-}}).addTo(map);
+// Khởi chạy
+initMap();
+initAudio();
 
-map.on('moveend', () => {{
-    const center = map.getCenter();
-    sessionStorage.setItem('mapCenter', JSON.stringify([center.lat, center.lng]));
-    sessionStorage.setItem('mapZoom', map.getZoom());
-}});
-
-const officerMarkers = {{}};
-const alertMarkers = {{}};
-const alertTimeouts = {{}};
-const pointMarkers = {{}};
-const incidentMarkers = {{}};
-const trackPolylines = {{}};
-const trackListeners = {{}};
-const moveOrderLines = {{}};
-
-let zoomedToMe = sessionStorage.getItem('zoomedToMe') === 'true';
-let selectionMode = false;
-let selectedOfficerId = null;
-let selectedOfficerName = null;
-let tempInfoControl = null;
-let hasSelected = false;
-let holdTimer = null;
-
-const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
-alertSound.preload = "auto";
-alertSound.loop = true;
-if (!sessionStorage.getItem('audioActivated')) {{
-    document.addEventListener("click", () => {{
+// Active audio khi click
+document.addEventListener("click", () => {{
+    if (!audioActivated && alertSound) {{
         alertSound.load();
-        sessionStorage.setItem('audioActivated', 'true');
-    }}, {{ once: true }});
-}} else {{
-    alertSound.load();
-}}
-
-function removeAlertMarker(alertId) {{
-    if (alertMarkers[alertId]) {{
-        map.removeLayer(alertMarkers[alertId]);
-        delete alertMarkers[alertId];
+        audioActivated = true;
+        console.log("🔊 Audio đã được kích hoạt");
     }}
-    if (alertTimeouts[alertId]) {{
-        clearTimeout(alertTimeouts[alertId]);
-        delete alertTimeouts[alertId];
-    }}
-    if (Object.keys(alertMarkers).length === 0 && !alertSound.paused) {{
-        alertSound.pause();
-        alertSound.currentTime = 0;
-    }}
-}}
-
-const alertIcon = L.divIcon({{
-    className: '', html: '<div class="alert-marker"></div>',
-    iconSize: [24, 24], popupAnchor: [0, -12]
-}});
-const incidentIcon = L.divIcon({{
-    className: '', html: '<div class="incident-icon">📷</div>',
-    iconSize: [30, 30], popupAnchor: [0, -15]
 }});
 
-if (navigator.geolocation && !zoomedToMe) {{
-    navigator.geolocation.getCurrentPosition(
-        (position) => {{
-            const {{ latitude: lat, longitude: lng }} = position.coords;
-            if (isValidVNCoordinate(lat, lng)) {{
-                map.setView([lat, lng], 16);
-                zoomedToMe = true;
-                sessionStorage.setItem('zoomedToMe', 'true');
-            }}
-        }},
-        (error) => console.warn("GPS fallback error:", error),
-        {{ enableHighAccuracy: true, timeout: 10000 }}
-    );
-}}
-
+// Stationary officers
 stationaryOfficers.forEach(officer => {{
     if (isValidVNCoordinate(officer.lat, officer.lng)) {{
         L.circleMarker([officer.lat, officer.lng], {{
@@ -1123,19 +1170,6 @@ stationaryOfficers.forEach(officer => {{
 }});
 
 const officersRef = ref(db, 'officers');
-
-function getOfficerColor(uid) {{
-    return userColors[uid] || '#0066cc';
-}}
-
-function createOfficerIcon(color) {{
-    return L.divIcon({{
-        className: '',
-        html: `<div style="background:${{color}}; width:22px; height:22px; border-radius:50%; border:3px solid white; box-shadow:0 0 12px ${{color}};"></div>`,
-        iconSize: [22, 22],
-        popupAnchor: [0, -12]
-    }});
-}}
 
 function activateSelectionMode(officerId, officerName) {{
     if (selectionMode) return;
@@ -1221,18 +1255,29 @@ function deactivateSelectionMode() {{
     hasSelected = false;
 }}
 
+// Xóa marker cũ trước khi tạo mới (chống marker ma)
+function removeOfficerMarkerIfExists(uid) {{
+    if (officerMarkers[uid]) {{
+        map.removeLayer(officerMarkers[uid]);
+        delete officerMarkers[uid];
+        console.log(`🗑️ Đã xóa marker cũ cho ${{uid}}`);
+    }}
+}}
+
+// Lắng nghe officer
 onChildAdded(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
     if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
+    // Xóa marker cũ trước khi tạo mới
+    removeOfficerMarkerIfExists(id);
     const color = getOfficerColor(id);
     const icon = createOfficerIcon(color);
     const marker = L.marker([officer.lat, officer.lng], {{ icon: icon }}).addTo(map);
     marker.bindTooltip(officer.name, {{ permanent: true, direction: 'top', offset: [0, -12], className: 'officer-label' }});
     officerMarkers[id] = marker;
-    if (id === myUsername && !zoomedToMe) {{
+    if (id === myUsername && !sessionStorage.getItem('zoomedToMe')) {{
         map.setView([officer.lat, officer.lng], 16);
-        zoomedToMe = true;
         sessionStorage.setItem('zoomedToMe', 'true');
     }}
 }});
@@ -1268,9 +1313,11 @@ onChildRemoved(officersRef, (data) => {{
     if (officerMarkers[id]) {{
         map.removeLayer(officerMarkers[id]);
         delete officerMarkers[id];
+        console.log(`🗑️ Officer ${{id}} đã ngắt kết nối`);
     }}
 }});
 
+// Online status
 const OFFLINE_TIMEOUT = 60000;
 function updateOnlineStatus() {{
     const now = Date.now();
@@ -1293,7 +1340,7 @@ function updateOnlineStatus() {{
 }}
 setInterval(updateOnlineStatus, 30000);
 
-// ==================== ALERTS (đã sửa lỗi phát âm thanh khi reload) ====================
+// ALERTS - ĐÃ SỬA HOÀN TOÀN
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 
@@ -1316,8 +1363,10 @@ function getAlertPopupContent(alert) {{
     return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{statusText}}${{distanceText}}<br> ${{new Date(alert.timestamp).toLocaleString()}}`;
 }}
 
-// Lưu danh sách các alert đã xử lý âm thanh để tránh phát lại khi reload
-const playedAlerts = new Set();
+const alertIcon = L.divIcon({{
+    className: '', html: '<div class="alert-marker"></div>',
+    iconSize: [24, 24], popupAnchor: [0, -12]
+}});
 
 onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
@@ -1325,21 +1374,35 @@ onChildAdded(alertsRef, (data) => {{
     if (!alert.timestamp || alert.timestamp < oneDayAgo) return;
     if (!isValidVNCoordinate(alert.lat, alert.lng)) return;
     
-    const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
-        .addTo(map)
-        .bindPopup(getAlertPopupContent(alert));
-    alertMarkers[id] = marker;
+    // Chỉ hiển thị nếu chưa có marker
+    if (!alertMarkers[id]) {{
+        const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
+            .addTo(map)
+            .bindPopup(getAlertPopupContent(alert));
+        alertMarkers[id] = marker;
+        console.log(`🆕 Alert mới: ${{id}} từ ${{alert.name}}`);
+    }}
 
     // Chỉ phát âm thanh nếu:
     // 1. Không phải báo động của chính mình
-    // 2. Alert mới được tạo trong vòng 5 giây gần đây (tránh phát lại khi reload)
+    // 2. Alert mới trong 5 giây
+    // 3. Chưa phát lần nào
     const now = Date.now();
     const isRecent = (now - alert.timestamp) < 5000;
     if (alert.name !== myName && isRecent && !playedAlerts.has(id)) {{
         playedAlerts.add(id);
-        alertSound.currentTime = 0;
-        alertSound.play().catch(e => console.log("Audio play error:", e));
+        if (audioActivated && alertSound) {{
+            alertSound.currentTime = 0;
+            alertSound.play().catch(e => console.log("Audio play error:", e));
+            console.log(`🔊 Đang phát âm thanh cho alert ${{id}}`);
+        }}
         map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
+        
+        // Chốt an toàn: tự động dừng sau 15 giây
+        const safeTimeout = setTimeout(() => {{
+            stopAlertSound();
+        }}, 15000);
+        
         // Tự động xóa sau 10 giây nếu vẫn pending
         alertTimeouts[id] = setTimeout(() => {{
             get(ref(db, 'alerts/' + id)).then((snapshot) => {{
@@ -1347,8 +1410,10 @@ onChildAdded(alertsRef, (data) => {{
                 if (currentAlert && currentAlert.status === 'pending') {{
                     removeAlertMarker(id);
                     update(ref(db, 'alerts/' + id), {{ status: 'expired' }});
+                    console.log(`⏰ Alert ${{id}} đã hết hạn sau 10s`);
                 }}
             }}).catch(console.error);
+            clearTimeout(safeTimeout);
         }}, 10000);
     }}
 }});
@@ -1360,6 +1425,7 @@ onChildChanged(alertsRef, (data) => {{
         alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
         if (alert.status === 'accepted' || alert.status === 'resolved' || alert.status === 'expired') {{
             removeAlertMarker(id);
+            console.log(`✅ Alert ${{id}} đã được xử lý: ${{alert.status}}`);
         }}
     }}
 }});
@@ -1369,7 +1435,7 @@ onChildRemoved(alertsRef, (data) => {{
     removeAlertMarker(id);
 }});
 
-// ==================== MARKERS, INCIDENTS, TRACKS, MOVE ORDERS (giữ nguyên) ====================
+// MARKERS và INCIDENTS
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1403,6 +1469,11 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
 }});
 
 const incidentsRef = ref(db, 'incidents');
+const incidentIcon = L.divIcon({{
+    className: '', html: '<div class="incident-icon">📷</div>',
+    iconSize: [30, 30], popupAnchor: [0, -15]
+}});
+
 onChildAdded(incidentsRef, (data) => {{
     const inc = data.val();
     const id = data.key;
@@ -1426,6 +1497,7 @@ onChildRemoved(incidentsRef, (data) => {{
     }}
 }});
 
+// GHI CHÚ BẰNG GIỮ 2 GIÂY
 if (userRole !== 'commander') {{
     let pressTimerMarker = null;
     map.on('touchstart', (e) => {{
@@ -1463,6 +1535,7 @@ map.on('contextmenu', (e) => {{
     }}
 }});
 
+// TRACKS
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1505,6 +1578,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
+// MOVE ORDERS
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
