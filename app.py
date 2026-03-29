@@ -138,105 +138,130 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. CẤU HÌNH TRANG VÀ CSS
+# 4. CẤU HÌNH TRANG VÀ CSS NÂNG CẤP
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
-# ===== CSS CẢI TIẾN (chữ rõ, sidebar đẹp) =====
+# CSS chuyên nghiệp
 st.markdown("""
 <style>
-/* ===== FONT ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
-html, body, [class*="css"] {
+* {
     font-family: 'Inter', sans-serif;
 }
 
-/* ===== BACKGROUND ===== */
 .stApp {
-    background: #f5f7fb;
+    background: #f3f4f6;
 }
 
-/* ===== SIDEBAR ===== */
+/* Sidebar */
 section[data-testid="stSidebar"] {
-    background: #1e293b;
-    color: #f1f5f9 !important;
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
 }
-section[data-testid="stSidebar"] .stMarkdown, 
-section[data-testid="stSidebar"] .stText, 
+section[data-testid="stSidebar"] .stMarkdown,
+section[data-testid="stSidebar"] .stText,
 section[data-testid="stSidebar"] .stSelectbox label,
 section[data-testid="stSidebar"] .stCheckbox label {
-    color: #f1f5f9 !important;
+    color: #1f2937 !important;
 }
 section[data-testid="stSidebar"] .stButton button {
     background: #2563eb;
     color: white;
+    border-radius: 8px;
+    font-weight: 500;
 }
 section[data-testid="stSidebar"] .stButton button:hover {
     background: #1d4ed8;
 }
 section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] {
-    background-color: #334155;
-    color: white;
+    background-color: #f9fafb;
+    border-color: #d1d5db;
 }
-section[data-testid="stSidebar"] .stTextInput input, 
+section[data-testid="stSidebar"] .stTextInput input,
 section[data-testid="stSidebar"] .stTextArea textarea {
-    background-color: #334155 !important;
-    color: white !important;
-    border-color: #475569 !important;
+    background-color: #f9fafb;
+    border-color: #d1d5db;
+    color: #1f2937;
 }
 
-/* ===== BUTTON CHUNG ===== */
+/* Button phân loại */
 .stButton button {
-    border-radius: 10px;
-    background: #2563eb;
-    color: white;
-    font-weight: 600;
+    border-radius: 8px;
+    font-weight: 500;
     border: none;
-    padding: 8px 16px;
     transition: 0.2s;
 }
-.stButton button:hover {
-    background: #1d4ed8;
+.primary-btn button {
+    background: #2563eb !important;
+    color: white !important;
+}
+.danger-btn button {
+    background: #dc2626 !important;
+    color: white !important;
+}
+.success-btn button {
+    background: #16a34a !important;
+    color: white !important;
+}
+.secondary-btn button {
+    background: #6b7280 !important;
+    color: white !important;
 }
 
-/* ===== INPUT ===== */
-input, textarea {
-    border-radius: 8px !important;
-    border: 1px solid #ddd !important;
+/* Card */
+.dashboard-card {
+    background: white;
+    padding: 20px;
+    border-radius: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
 }
 
-/* ===== TITLE ===== */
-h1, h2, h3 {
-    color: #1e293b;
+/* Header */
+.custom-header {
+    margin-bottom: 1.5rem;
+}
+.custom-header h2 {
+    color: #1f2937;
+    margin-bottom: 0;
+    font-weight: 700;
+}
+.custom-header p {
+    color: #6b7280;
+    margin-top: 4px;
 }
 
-/* ===== CARD STYLE ===== */
-.block-container {
-    padding-top: 2rem;
+/* Sidebar group */
+.sidebar-group {
+    margin-bottom: 24px;
+}
+.sidebar-group h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #6b7280;
+    margin-bottom: 12px;
+    font-weight: 600;
 }
 .sidebar-card {
-    background: #334155;
+    background: #f9fafb;
     border-radius: 12px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    color: #f1f5f9;
-}
-.sidebar-card .stButton button {
-    background: #2563eb;
-}
-/* ===== SCROLL ===== */
-::-webkit-scrollbar {
-    width: 6px;
-}
-::-webkit-scrollbar-thumb {
-    background: #ccc;
-    border-radius: 3px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1px solid #e5e7eb;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🚔 Hệ thống theo dõi và phối hợp tuần tra")
+# Header mới
+st.markdown("""
+<div class="custom-header">
+    <h2>🚔 Hệ thống điều hành tuần tra</h2>
+    <p>Realtime tracking & coordination</p>
+</div>
+""", unsafe_allow_html=True)
 
 authenticator.login(location="main")
 authentication_status = st.session_state.get("authentication_status")
@@ -671,177 +696,177 @@ def detect_stationary_officers():
         return []
 
 # ==============================
-# 12. SIDEBAR CÔNG CỤ (dùng card)
+# 12. SIDEBAR PHÂN NHÓM VÀ CARD
 # ==============================
-st.sidebar.markdown("---")
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-st.sidebar.subheader("🚨 Công cụ phối hợp")
-if st.sidebar.button("🚨 Gửi báo động"):
-    user_data = db.child("officers").child(username).get().val()
-    if user_data and is_valid_coordinate(user_data.get("lat"), user_data.get("lng")):
-        lat = user_data["lat"]
-        lng = user_data["lng"]
-        nearest = find_nearest_officers(lat, lng)
-        request_data = {
-            "username": username,
-            "name": name,
-            "lat": lat,
-            "lng": lng,
-            "assigned": nearest,
-            "status": "pending",
-            "timestamp": int(time.time() * 1000)
-        }
-        db.child("alert_requests").push(request_data)
-
-        server_key = st.secrets.get("fcm", {}).get("server_key", "")
-        if server_key:
-            tokens = db.child("fcm_tokens").get().val() or {}
-            for uid, token in tokens.items():
-                if uid != username:
-                    send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
-
-        st.sidebar.success("Đã gửi yêu cầu báo động")
-    else:
-        st.sidebar.error("Bạn chưa chia sẻ vị trí hợp lệ")
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
-
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-with st.sidebar.expander("📍 Đánh dấu điểm"):
-    note = st.text_area("Ghi chú")
-    if st.button("Thêm điểm tại vị trí hiện tại"):
-        current = db.child("officers").child(username).get().val()
-        if current and is_valid_coordinate(current.get("lat"), current.get("lng")) and note.strip():
-            marker_data = {
-                "created_by": name,
-                "lat": current["lat"],
-                "lng": current["lng"],
-                "note": note,
-                "timestamp": int(time.time() * 1000),
+# Nhóm 1: Điều hành
+st.sidebar.markdown('<div class="sidebar-group"><h3>🚨 ĐIỀU HÀNH</h3></div>', unsafe_allow_html=True)
+with st.sidebar:
+    st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
+    if st.button("🚨 Gửi báo động", key="alert_btn"):
+        user_data = db.child("officers").child(username).get().val()
+        if user_data and is_valid_coordinate(user_data.get("lat"), user_data.get("lng")):
+            lat = user_data["lat"]
+            lng = user_data["lng"]
+            nearest = find_nearest_officers(lat, lng)
+            request_data = {
+                "username": username,
+                "name": name,
+                "lat": lat,
+                "lng": lng,
+                "assigned": nearest,
+                "status": "pending",
+                "timestamp": int(time.time() * 1000)
             }
-            db.child("markers").child(username).push(marker_data)
-            st.sidebar.success("Đã thêm điểm")
+            db.child("alert_requests").push(request_data)
+            server_key = st.secrets.get("fcm", {}).get("server_key", "")
+            if server_key:
+                tokens = db.child("fcm_tokens").get().val() or {}
+                for uid, token in tokens.items():
+                    if uid != username:
+                        send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
+            st.success("Đã gửi yêu cầu báo động")
         else:
-            st.sidebar.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
+            st.error("Bạn chưa chia sẻ vị trí hợp lệ")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-if user_role == "commander":
-    with st.sidebar.expander("🗑️ Xóa ghi chú (toàn bộ)"):
-        if st.button("⚠️ Xóa tất cả ghi chú", help="Xóa toàn bộ markers của tất cả người dùng"):
-            try:
-                db.child("markers").remove()
-                st.sidebar.success("Đã xóa toàn bộ ghi chú!")
-            except Exception as e:
-                st.sidebar.error(f"Lỗi xóa: {e}")
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
-
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-with st.sidebar.expander("📸 Chụp ảnh hiện trường"):
-    uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
-    note_photo = st.text_input("Ghi chú (tùy chọn)")
-    if st.button("📤 Gửi ảnh"):
-        if not st.session_state.sharing:
-            st.sidebar.warning("Bạn cần bật chia sẻ vị trí trước")
-        elif uploaded_file is None:
-            st.sidebar.warning("Vui lòng chọn ảnh")
+    st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
+    if st.button("✅ Nhận nhiệm vụ gần nhất", key="accept_mission"):
+        alerts = db.child("alerts").get().val()
+        if alerts:
+            found = False
+            for key, alert in alerts.items():
+                assigned = alert.get("assigned", [])
+                if username in assigned:
+                    db.child("alerts").child(key).update({
+                        "status": "accepted",
+                        "accepted_by": name
+                    })
+                    st.success("Đã nhận nhiệm vụ")
+                    found = True
+                    break
+            if not found:
+                st.info("Không có nhiệm vụ nào cho bạn")
         else:
+            st.info("Không có báo động nào")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Nhóm 2: Tác vụ cá nhân
+st.sidebar.markdown('<div class="sidebar-group"><h3>📍 TÁC VỤ CÁ NHÂN</h3></div>', unsafe_allow_html=True)
+with st.sidebar:
+    with st.expander("📍 Đánh dấu điểm"):
+        note = st.text_area("Ghi chú")
+        if st.button("Thêm điểm tại vị trí hiện tại"):
             current = db.child("officers").child(username).get().val()
-            if current and is_valid_coordinate(current.get("lat"), current.get("lng")):
-                imgbb_api_key = st.secrets["imgbb"]["api_key"]
-                image_url, error = upload_to_imgbb(uploaded_file, imgbb_api_key)
-                if error:
-                    st.sidebar.error(f"Lỗi upload: {error}")
-                else:
-                    incident_data = {
-                        "created_by": name,
-                        "lat": current["lat"],
-                        "lng": current["lng"],
-                        "note": note_photo,
-                        "image_url": image_url,
-                        "timestamp": int(time.time() * 1000)
-                    }
-                    db.child("incidents").push(incident_data)
-                    st.sidebar.success("Đã gửi ảnh hiện trường! Ảnh sẽ tự động xóa sau 24h.")
-            else:
-                st.sidebar.error("Không có vị trí hợp lệ")
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
-
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-st.sidebar.subheader("📋 Nhiệm vụ")
-if st.sidebar.button("✅ Nhận nhiệm vụ gần nhất"):
-    alerts = db.child("alerts").get().val()
-    if alerts:
-        found = False
-        for key, alert in alerts.items():
-            assigned = alert.get("assigned", [])
-            if username in assigned:
-                db.child("alerts").child(key).update({
-                    "status": "accepted",
-                    "accepted_by": name
-                })
-                st.sidebar.success("Đã nhận nhiệm vụ")
-                found = True
-                break
-        if not found:
-            st.sidebar.info("Không có nhiệm vụ nào cho bạn")
-    else:
-        st.sidebar.info("Không có báo động nào")
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
-
-# ==============================
-# 13. QUẢN LÝ USER (ADMIN)
-# ==============================
-if user_role == "admin":
-    st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-    st.sidebar.subheader("👤 Quản lý tài khoản")
-    with st.sidebar.expander("➕ Thêm user mới"):
-        new_username = st.text_input("Tên đăng nhập")
-        new_email = st.text_input("Email")
-        new_name = st.text_input("Tên hiển thị")
-        new_password = st.text_input("Mật khẩu", type="password")
-        new_role = st.selectbox("Vai trò", ["admin", "commander", "officer"])
-        new_color = st.color_picker("Màu sắc", "#0066cc")
-        
-        if st.button("Tạo tài khoản"):
-            if not new_username or not new_name or not new_password:
-                st.sidebar.error("Vui lòng nhập đầy đủ: tên đăng nhập, tên hiển thị và mật khẩu")
-            elif new_username in config["credentials"]["usernames"]:
-                st.sidebar.error("Tên đăng nhập đã tồn tại")
-            else:
-                hashed = Hasher([new_password]).generate()[0]
-                config["credentials"]["usernames"][new_username] = {
-                    "email": new_email,
-                    "name": new_name,
-                    "password": hashed,
-                    "role": new_role,
-                    "color": new_color
+            if current and is_valid_coordinate(current.get("lat"), current.get("lng")) and note.strip():
+                marker_data = {
+                    "created_by": name,
+                    "lat": current["lat"],
+                    "lng": current["lng"],
+                    "note": note,
+                    "timestamp": int(time.time() * 1000),
                 }
-                if save_credentials_to_firebase(config["credentials"]):
-                    st.sidebar.success(f"Đã thêm user {new_username}")
-                    st.rerun()
-                else:
-                    st.sidebar.error("Lỗi lưu dữ liệu")
-    
-    with st.sidebar.expander("🗑️ Xóa user"):
-        users = list(config["credentials"]["usernames"].keys())
-        if users:
-            user_to_delete = st.selectbox("Chọn user để xóa", users)
-            if st.button("Xóa user"):
-                if user_to_delete == username:
-                    st.sidebar.error("Không thể xóa chính mình")
-                else:
-                    del config["credentials"]["usernames"][user_to_delete]
-                    if save_credentials_to_firebase(config["credentials"]):
-                        st.sidebar.success(f"Đã xóa user {user_to_delete}")
-                        st.rerun()
+                db.child("markers").child(username).push(marker_data)
+                st.success("Đã thêm điểm")
+            else:
+                st.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
+
+    with st.expander("📸 Chụp ảnh hiện trường"):
+        uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
+        note_photo = st.text_input("Ghi chú (tùy chọn)")
+        if st.button("📤 Gửi ảnh"):
+            if not st.session_state.sharing:
+                st.warning("Bạn cần bật chia sẻ vị trí trước")
+            elif uploaded_file is None:
+                st.warning("Vui lòng chọn ảnh")
+            else:
+                current = db.child("officers").child(username).get().val()
+                if current and is_valid_coordinate(current.get("lat"), current.get("lng")):
+                    imgbb_api_key = st.secrets["imgbb"]["api_key"]
+                    image_url, error = upload_to_imgbb(uploaded_file, imgbb_api_key)
+                    if error:
+                        st.error(f"Lỗi upload: {error}")
                     else:
-                        st.sidebar.error("Lỗi lưu dữ liệu")
-        else:
-            st.sidebar.info("Không có user nào")
-    st.sidebar.markdown('</div>', unsafe_allow_html=True)
+                        incident_data = {
+                            "created_by": name,
+                            "lat": current["lat"],
+                            "lng": current["lng"],
+                            "note": note_photo,
+                            "image_url": image_url,
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        db.child("incidents").push(incident_data)
+                        st.success("Đã gửi ảnh hiện trường!")
+                else:
+                    st.error("Không có vị trí hợp lệ")
+
+# Nhóm 3: Hệ thống (chỉ commander và admin)
+if user_role in ["commander", "admin"]:
+    st.sidebar.markdown('<div class="sidebar-group"><h3>⚙️ HỆ THỐNG</h3></div>', unsafe_allow_html=True)
+    if user_role == "commander":
+        with st.sidebar:
+            st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
+            if st.button("🗑️ Xóa ghi chú (toàn bộ)", key="delete_all_markers"):
+                try:
+                    db.child("markers").remove()
+                    st.success("Đã xóa toàn bộ ghi chú!")
+                except Exception as e:
+                    st.error(f"Lỗi xóa: {e}")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    if user_role == "admin":
+        with st.sidebar:
+            with st.expander("👤 Quản lý tài khoản"):
+                with st.form("add_user_form"):
+                    new_username = st.text_input("Tên đăng nhập")
+                    new_email = st.text_input("Email")
+                    new_name = st.text_input("Tên hiển thị")
+                    new_password = st.text_input("Mật khẩu", type="password")
+                    new_role = st.selectbox("Vai trò", ["admin", "commander", "officer"])
+                    new_color = st.color_picker("Màu sắc", "#0066cc")
+                    if st.form_submit_button("Tạo tài khoản"):
+                        if not new_username or not new_name or not new_password:
+                            st.error("Vui lòng nhập đầy đủ")
+                        elif new_username in config["credentials"]["usernames"]:
+                            st.error("Tên đăng nhập đã tồn tại")
+                        else:
+                            hashed = Hasher([new_password]).generate()[0]
+                            config["credentials"]["usernames"][new_username] = {
+                                "email": new_email,
+                                "name": new_name,
+                                "password": hashed,
+                                "role": new_role,
+                                "color": new_color
+                            }
+                            if save_credentials_to_firebase(config["credentials"]):
+                                st.success(f"Đã thêm user {new_username}")
+                                st.rerun()
+                            else:
+                                st.error("Lỗi lưu dữ liệu")
+                with st.form("delete_user_form"):
+                    users = list(config["credentials"]["usernames"].keys())
+                    if users:
+                        user_to_delete = st.selectbox("Chọn user để xóa", users)
+                        if st.form_submit_button("Xóa user"):
+                            if user_to_delete == username:
+                                st.error("Không thể xóa chính mình")
+                            else:
+                                del config["credentials"]["usernames"][user_to_delete]
+                                if save_credentials_to_firebase(config["credentials"]):
+                                    st.success(f"Đã xóa user {user_to_delete}")
+                                    st.rerun()
+                                else:
+                                    st.error("Lỗi lưu dữ liệu")
+                    else:
+                        st.info("Không có user nào")
+
+# Nhóm 4: Công cụ khác
+st.sidebar.markdown('<div class="sidebar-group"><h3>🗺️ LỊCH SỬ DI CHUYỂN</h3></div>', unsafe_allow_html=True)
+with st.sidebar:
+    if 'show_tracks' not in st.session_state:
+        st.session_state.show_tracks = {}
 
 # ==============================
-# 14. LOAD DỮ LIỆU (có spinner)
+# 13. LOAD DỮ LIỆU
 # ==============================
 with st.spinner("🔄 Đang tải dữ liệu..."):
     @st.cache_data(ttl=5)
@@ -886,20 +911,13 @@ with st.spinner("🔄 Đang tải dữ liệu..."):
             return {}
 
 # ==============================
-# 15. AUTO REFRESH
+# 14. AUTO REFRESH
 # ==============================
 st_autorefresh(interval=10000, key="auto_refresh")
 
 # ==============================
-# 16. CHECKBOX TRACK
+# 15. CHECKBOX TRACK
 # ==============================
-st.sidebar.markdown("---")
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-st.sidebar.subheader("🗺️ Lịch sử di chuyển")
-
-if 'show_tracks' not in st.session_state:
-    st.session_state.show_tracks = {}
-
 officers = load_officers()
 if officers:
     for uid, info in officers.items():
@@ -910,10 +928,9 @@ if officers:
             key=key
         )
         st.session_state.show_tracks[uid] = checked
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 17. CHUẨN BỊ MAP
+# 16. CHUẨN BỊ MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -936,7 +953,7 @@ except Exception as e:
     print("Cleanup error:", e)
 
 # ==============================
-# 18. ORDER JS
+# 17. ORDER JS
 # ==============================
 order_js = ""
 if user_role == "commander" and st.session_state.get('order_officer_id'):
@@ -954,8 +971,9 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 19. MAP HTML (SỬA LỖI BÁO ĐỘNG)
+# 18. MAP HTML (giữ nguyên nội dung, chỉ thay tile layer nếu có key MapTiler)
 # ==============================
+# Nếu bạn có key MapTiler, thay đoạn L.tileLayer bên dưới. Ở đây giữ CARTO để tránh lỗi.
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> 
@@ -972,19 +990,9 @@ map_html = f"""
     .incident-icon {{ background: #ffaa00; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-size: 18px; border: 2px solid white; }} 
     .selection-info {{ background: white; padding: 8px 15px; border-radius: 8px; border: 2px solid #ff8800; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }} 
     .cancel-btn {{ background: #ff4444; color: white; border: none; border-radius: 5px; padding: 5px 12px; margin-left: 10px; cursor: pointer; font-size: 14px; }} 
-    /* HIỆU ỨNG HOVER CHO MARKER */
-    .leaflet-marker-icon {{
-        transition: transform 0.2s ease;
-    }}
-    .leaflet-marker-icon:hover {{
-        transform: scale(1.3);
-    }}
-    /* CHẶN BÔI ĐEN SAFARI */
-    * {{
-        -webkit-user-select: none;
-        user-select: none;
-        -webkit-touch-callout: none;
-    }}
+    .leaflet-marker-icon {{ transition: transform 0.2s ease; }}
+    .leaflet-marker-icon:hover {{ transform: scale(1.3); }}
+    * {{ -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }}
 </style> 
 <body> {order_js} <div id="map"></div> 
 <script type="module"> 
@@ -1003,9 +1011,6 @@ const userRole = {user_role_json};
 const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
-
-console.log("👤 Username:", myUsername);
-console.log("👤 Role:", userRole);
 
 function isValidVNCoordinate(lat, lng) {{
     if (typeof lat !== 'number' || typeof lng !== 'number') return false;
@@ -1067,7 +1072,7 @@ map.on('moveend', () => {{
 
 const officerMarkers = {{}};
 const alertMarkers = {{}};
-const alertTimeouts = {{}}; // Lưu timeout để tắt âm thanh
+const alertTimeouts = {{}};
 const pointMarkers = {{}};
 const incidentMarkers = {{}};
 const trackPolylines = {{}};
@@ -1079,13 +1084,12 @@ let selectionMode = false;
 let selectedOfficerId = null;
 let selectedOfficerName = null;
 let tempInfoControl = null;
-let selectionClickHandler = null;
 let hasSelected = false;
 let holdTimer = null;
 
 const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
 alertSound.preload = "auto";
-alertSound.loop = true; // Lặp âm thanh cho đến khi dừng
+alertSound.loop = true;
 if (!sessionStorage.getItem('audioActivated')) {{
     document.addEventListener("click", () => {{
         alertSound.load();
@@ -1098,9 +1102,8 @@ if (!sessionStorage.getItem('audioActivated')) {{
 function stopAlert(alertId) {{
     if (alertTimeouts[alertId]) {{
         clearTimeout(alertTimeouts[alertId]);
-        delete alertTimeouts[alertId];
+        delete alertTimeouts[alertId]);
     }}
-    // Dừng âm thanh nếu không còn alert nào đang hoạt động
     if (Object.keys(alertTimeouts).length === 0 && !alertSound.paused) {{
         alertSound.pause();
         alertSound.currentTime = 0;
@@ -1239,21 +1242,14 @@ function deactivateSelectionMode() {{
     hasSelected = false;
 }}
 
-// Thêm marker officer (nâng cấp)
 onChildAdded(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
-    if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
-        console.log("⚠️ Bỏ qua officer có tọa độ lỗi:", id, officer.lat, officer.lng);
-        return;
-    }}
+    if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
     const color = getOfficerColor(id);
     const icon = createOfficerIcon(color);
     const marker = L.marker([officer.lat, officer.lng], {{ icon: icon }}).addTo(map);
-    marker.bindTooltip(officer.name, {{
-        permanent: true, direction: 'top', offset: [0, -12], className: 'officer-label'
-    }});
-    
+    marker.bindTooltip(officer.name, {{ permanent: true, direction: 'top', offset: [0, -12], className: 'officer-label' }});
     officerMarkers[id] = marker;
     if (id === myUsername && !zoomedToMe) {{
         map.setView([officer.lat, officer.lng], 16);
@@ -1262,7 +1258,6 @@ onChildAdded(officersRef, (data) => {{
     }}
 }});
 
-// Cập nhật marker
 onChildChanged(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
@@ -1297,7 +1292,6 @@ onChildRemoved(officersRef, (data) => {{
     }}
 }});
 
-// Online status (cập nhật màu marker)
 const OFFLINE_TIMEOUT = 60000;
 function updateOnlineStatus() {{
     const now = Date.now();
@@ -1320,7 +1314,6 @@ function updateOnlineStatus() {{
 }}
 setInterval(updateOnlineStatus, 30000);
 
-// Alerts (có cơ chế dừng)
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 function getAlertPopupContent(alert) {{
@@ -1349,16 +1342,11 @@ onChildAdded(alertsRef, (data) => {{
             .addTo(map)
             .bindPopup(getAlertPopupContent(alert));
         alertMarkers[id] = marker;
-        
-        // Phát âm thanh và bật popup nếu không phải báo động của chính mình
         if (alert.name !== myName) {{
             alertSound.currentTime = 0;
             alertSound.play().catch(e => console.log("Audio play error:", e));
             map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
-            // Tự động dừng sau 10 giây
-            alertTimeouts[id] = setTimeout(() => {{
-                stopAlert(id);
-            }}, 10000);
+            alertTimeouts[id] = setTimeout(() => stopAlert(id), 10000);
         }}
     }}
 }});
@@ -1368,7 +1356,6 @@ onChildChanged(alertsRef, (data) => {{
     const id = data.key;
     if (alertMarkers[id]) {{
         alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
-        // Nếu trạng thái là accepted hoặc resolved và âm thanh đang phát thì dừng
         if ((alert.status === 'accepted' || alert.status === 'resolved') && alertTimeouts[id]) {{
             stopAlert(id);
         }}
@@ -1384,7 +1371,6 @@ onChildRemoved(alertsRef, (data) => {{
     stopAlert(id);
 }});
 
-// Markers và incidents (giữ nguyên)
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1441,7 +1427,6 @@ onChildRemoved(incidentsRef, (data) => {{
     }}
 }});
 
-// GHI CHÚ (GIỮ 2 GIÂY) CHỈ KHI KHÔNG Ở CHẾ ĐỘ CHỌN LỆNH
 if (userRole !== 'commander') {{
     let pressTimerMarker = null;
     map.on('touchstart', (e) => {{
@@ -1479,7 +1464,6 @@ map.on('contextmenu', (e) => {{
     }}
 }});
 
-// Tracks (giữ nguyên)
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1522,7 +1506,6 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// Move orders (giữ nguyên)
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1580,7 +1563,6 @@ onValue(officersRef, (snapshot) => {{
     if (Object.keys(officers).length > 1) zoomToAllOfficers();
 }});
 
-// Xử lý pending order (chờ marker load)
 if (window.pendingOrder && window.pendingOrder.officerId) {{
     const checkInterval = setInterval(() => {{
         if (officerMarkers[window.pendingOrder.officerId]) {{
@@ -1592,13 +1574,12 @@ if (window.pendingOrder && window.pendingOrder.officerId) {{
 </script> </body> </html> """
 
 # ==============================
-# 20. TABS
+# 19. HIỂN THỊ MAP TRONG CARD TRẮNG
 # ==============================
+st.markdown('<div class="dashboard-card">', unsafe_allow_html=True)
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
-
 with tab1:
     st.components.v1.html(map_html, height=620)
-
 with tab2:
     st.subheader("💬 Chat nội bộ")
     st_autorefresh(interval=3000, key="chat_refresh")
@@ -1673,60 +1654,47 @@ with tab2:
                         db.child("messages").child(k).remove()
                 st.rerun()
 
-# ==============================
-# 21. DANH SÁCH CÁN BỘ ONLINE
-# ==============================
-st.sidebar.markdown("---")
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-st.sidebar.subheader("👥 Cán bộ trực tuyến")
+st.markdown('</div>', unsafe_allow_html=True)
 
+# ==============================
+# 20. CÁC PHẦN HIỂN THỊ THÔNG TIN PHỤ TRONG SIDEBAR
+# ==============================
+st.sidebar.markdown('<div class="sidebar-group"><h3>👥 TRỰC TUYẾN</h3></div>', unsafe_allow_html=True)
 if officers:
     for uid, info in officers.items():
         label = "(bạn)" if uid == username else ""
         st.sidebar.write(f"• {info['name']} {label}")
 else:
     st.sidebar.write("Chưa có ai chia sẻ vị trí hợp lệ")
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
-# ==============================
-# 22. ĐIỂM ĐÁNH DẤU GẦN ĐÂY
-# ==============================
 all_markers = load_all_markers()
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-with st.sidebar.expander("📌 Điểm đánh dấu gần đây"):
-    if all_markers:
-        valid_markers = {k: v for k, v in all_markers.items()
-                        if isinstance(v, dict) and v.get("timestamp")}
-        if valid_markers:
-            sorted_markers = sorted(valid_markers.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
-            for _, m in sorted_markers:
-                st.write(f"📍 {m.get('created_by', 'Unknown')}: {m.get('note', '')[:30]}...")
-        else:
-            st.write("Chưa có điểm đánh dấu hợp lệ")
-    else:
-        st.write("Chưa có điểm đánh dấu")
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
-
-# ==============================
-# 23. INCIDENTS GẦN ĐÂY
-# ==============================
 incidents = load_incidents()
-st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-with st.sidebar.expander("📸 Ảnh hiện trường gần đây"):
-    if incidents:
-        sorted_inc = sorted(incidents.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
-        for key, inc in sorted_inc:
-            st.write(f"📷 {inc['created_by']}: {inc.get('note', '')[:30]}...")
+st.sidebar.markdown('<div class="sidebar-group"><h3>📌 ĐIỂM ĐÁNH DẤU GẦN ĐÂY</h3></div>', unsafe_allow_html=True)
+if all_markers:
+    valid_markers = {k: v for k, v in all_markers.items() if isinstance(v, dict) and v.get("timestamp")}
+    if valid_markers:
+        sorted_markers = sorted(valid_markers.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
+        for _, m in sorted_markers:
+            st.sidebar.write(f"📍 {m.get('created_by', 'Unknown')}: {m.get('note', '')[:30]}...")
     else:
-        st.write("Chưa có ảnh hiện trường")
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
+        st.sidebar.write("Chưa có điểm đánh dấu hợp lệ")
+else:
+    st.sidebar.write("Chưa có điểm đánh dấu")
+
+st.sidebar.markdown('<div class="sidebar-group"><h3>📸 ẢNH HIỆN TRƯỜNG GẦN ĐÂY</h3></div>', unsafe_allow_html=True)
+if incidents:
+    sorted_inc = sorted(incidents.items(), key=lambda x: x[1]["timestamp"], reverse=True)[:5]
+    for key, inc in sorted_inc:
+        st.sidebar.write(f"📷 {inc['created_by']}: {inc.get('note', '')[:30]}...")
+else:
+    st.sidebar.write("Chưa có ảnh hiện trường")
 
 # ==============================
-# 24. DROPDOWN RA LỆNH CHO COMMANDER
+# 21. RA LỆNH CHO COMMANDER
 # ==============================
 if user_role == "commander" and officers:
+    st.sidebar.markdown('<div class="sidebar-group"><h3>🚶 RA LỆNH DI CHUYỂN</h3></div>', unsafe_allow_html=True)
     st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
-    st.sidebar.subheader("🚶 Ra lệnh di chuyển (giữ 5 giây trên map)")
     officer_options = {uid: info['name'] for uid, info in officers.items() if uid != username}
     if officer_options:
         selected_officer = st.sidebar.selectbox(
