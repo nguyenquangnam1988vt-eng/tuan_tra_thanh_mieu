@@ -138,11 +138,10 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. CẤU HÌNH TRANG VÀ CSS NÂNG CẤP
+# 4. CẤU HÌNH TRANG VÀ CSS
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
-# CSS chuyên nghiệp
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -186,7 +185,7 @@ section[data-testid="stSidebar"] .stTextArea textarea {
     color: #1f2937;
 }
 
-/* Button phân loại */
+/* Button */
 .stButton button {
     border-radius: 8px;
     font-weight: 500;
@@ -255,7 +254,6 @@ section[data-testid="stSidebar"] .stTextArea textarea {
 </style>
 """, unsafe_allow_html=True)
 
-# Header mới
 st.markdown("""
 <div class="custom-header">
     <h2>🚔 Hệ thống điều hành tuần tra</h2>
@@ -335,7 +333,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. GPS SCRIPT (giữ nguyên)
+# 8. GPS SCRIPT
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -698,7 +696,6 @@ def detect_stationary_officers():
 # ==============================
 # 12. SIDEBAR PHÂN NHÓM VÀ CARD
 # ==============================
-# Nhóm 1: Điều hành
 st.sidebar.markdown('<div class="sidebar-group"><h3>🚨 ĐIỀU HÀNH</h3></div>', unsafe_allow_html=True)
 with st.sidebar:
     st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
@@ -750,7 +747,6 @@ with st.sidebar:
             st.info("Không có báo động nào")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Nhóm 2: Tác vụ cá nhân
 st.sidebar.markdown('<div class="sidebar-group"><h3>📍 TÁC VỤ CÁ NHÂN</h3></div>', unsafe_allow_html=True)
 with st.sidebar:
     with st.expander("📍 Đánh dấu điểm"):
@@ -799,7 +795,6 @@ with st.sidebar:
                 else:
                     st.error("Không có vị trí hợp lệ")
 
-# Nhóm 3: Hệ thống (chỉ commander và admin)
 if user_role in ["commander", "admin"]:
     st.sidebar.markdown('<div class="sidebar-group"><h3>⚙️ HỆ THỐNG</h3></div>', unsafe_allow_html=True)
     if user_role == "commander":
@@ -859,7 +854,6 @@ if user_role in ["commander", "admin"]:
                     else:
                         st.info("Không có user nào")
 
-# Nhóm 4: Công cụ khác
 st.sidebar.markdown('<div class="sidebar-group"><h3>🗺️ LỊCH SỬ DI CHUYỂN</h3></div>', unsafe_allow_html=True)
 with st.sidebar:
     if 'show_tracks' not in st.session_state:
@@ -941,7 +935,6 @@ stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
 user_role_json = json.dumps(user_role)
 
-# Xóa officer lỗi
 try:
     officers_old = db.child("officers").get().val()
     if officers_old:
@@ -952,9 +945,6 @@ try:
 except Exception as e:
     print("Cleanup error:", e)
 
-# ==============================
-# 17. ORDER JS
-# ==============================
 order_js = ""
 if user_role == "commander" and st.session_state.get('order_officer_id'):
     order_js = f"""
@@ -971,7 +961,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 18. MAP HTML (ĐÃ SỬA LỖI JS)
+# 17. MAP HTML HOÀN CHỈNH (ĐÃ SỬA BÁO ĐỘNG)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1098,12 +1088,16 @@ if (!sessionStorage.getItem('audioActivated')) {{
     alertSound.load();
 }}
 
-function stopAlert(alertId) {{
+function removeAlertMarker(alertId) {{
+    if (alertMarkers[alertId]) {{
+        map.removeLayer(alertMarkers[alertId]);
+        delete alertMarkers[alertId];
+    }}
     if (alertTimeouts[alertId]) {{
         clearTimeout(alertTimeouts[alertId]);
         delete alertTimeouts[alertId];
     }}
-    if (Object.keys(alertTimeouts).length === 0 && !alertSound.paused) {{
+    if (Object.keys(alertMarkers).length === 0 && !alertSound.paused) {{
         alertSound.pause();
         alertSound.currentTime = 0;
     }}
@@ -1333,92 +1327,47 @@ function getAlertPopupContent(alert) {{
     return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{statusText}}${{distanceText}}<br> ${{new Date(alert.timestamp).toLocaleString()}}`;
 }}
 
-const alertsRef = ref(db, 'alerts');
-const oneDayAgo = Date.now() - 24*60*60*1000;
-
-function getAlertPopupContent(alert) {
-    let distanceText = "";
-    if (officerMarkers[myUsername]) {
-        const myLatLng = officerMarkers[myUsername].getLatLng();
-        const distance = haversine(myLatLng.lat, myLatLng.lng, alert.lat, alert.lng);
-        distanceText = `<br>Khoảng cách: ${(distance/1000).toFixed(2)} km`;
-    }
-    let statusText = "";
-    if (alert.status === "pending") statusText = "🟥 Chưa xử lý";
-    else if (alert.status === "accepted") {
-        if (alert.accepted_by) statusText = `🟨 Đang xử lý bởi ${alert.accepted_by}`;
-        else statusText = "🟨 Đang xử lý";
-    }
-    else if (alert.status === "resolved") statusText = "🟩 Đã xong";
-    else statusText = "Không rõ";
-    return `🚨 <b>Báo động từ ${alert.name}</b><br> Trạng thái: ${statusText}${distanceText}<br> ${new Date(alert.timestamp).toLocaleString()}`;
-}
-
-function removeAlertMarker(alertId) {
-    if (alertMarkers[alertId]) {
-        map.removeLayer(alertMarkers[alertId]);
-        delete alertMarkers[alertId];
-    }
-    if (alertTimeouts[alertId]) {
-        clearTimeout(alertTimeouts[alertId]);
-        delete alertTimeouts[alertId];
-    }
-    // Nếu không còn alert nào, dừng âm thanh
-    if (Object.keys(alertMarkers).length === 0 && !alertSound.paused) {
-        alertSound.pause();
-        alertSound.currentTime = 0;
-    }
-}
-
-onChildAdded(alertsRef, (data) => {
+onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
-    if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {
-        const marker = L.marker([alert.lat, alert.lng], { icon: alertIcon })
+    if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {{
+        const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
             .addTo(map)
             .bindPopup(getAlertPopupContent(alert));
         alertMarkers[id] = marker;
 
-        if (alert.name !== myName) {
-            // Phát âm thanh
+        if (alert.name !== myName) {{
             alertSound.currentTime = 0;
             alertSound.play().catch(e => console.log("Audio play error:", e));
-            // Bay tới vị trí báo động
-            map.flyTo([alert.lat, alert.lng], 17, { animate: true, duration: 1.5 });
-
-            // Tự động xóa marker sau 10 giây nếu vẫn còn pending
-            alertTimeouts[id] = setTimeout(() => {
-                // Kiểm tra lại trạng thái hiện tại của alert
-                get(ref(db, 'alerts/' + id)).then((snapshot) => {
+            map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
+            alertTimeouts[id] = setTimeout(() => {{
+                get(ref(db, 'alerts/' + id)).then((snapshot) => {{
                     const currentAlert = snapshot.val();
-                    if (currentAlert && currentAlert.status === 'pending') {
-                        // Xóa marker khỏi map
+                    if (currentAlert && currentAlert.status === 'pending') {{
                         removeAlertMarker(id);
-                        // Có thể cập nhật trạng thái thành 'expired' nếu muốn lưu lịch sử
-                        update(ref(db, 'alerts/' + id), { status: 'expired' });
-                    }
-                }).catch(console.error);
-            }, 10000);
-        }
-    }
-});
+                        update(ref(db, 'alerts/' + id), {{ status: 'expired' }});
+                    }}
+                }}).catch(console.error);
+            }}, 10000);
+        }}
+    }}
+}});
 
-onChildChanged(alertsRef, (data) => {
+onChildChanged(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
-    if (alertMarkers[id]) {
+    if (alertMarkers[id]) {{
         alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
-        // Nếu báo động được chấp nhận hoặc resolved, xóa marker ngay lập tức
-        if (alert.status === 'accepted' || alert.status === 'resolved' || alert.status === 'expired') {
+        if (alert.status === 'accepted' || alert.status === 'resolved' || alert.status === 'expired') {{
             removeAlertMarker(id);
-        }
-    }
-});
+        }}
+    }}
+}});
 
-onChildRemoved(alertsRef, (data) => {
+onChildRemoved(alertsRef, (data) => {{
     const id = data.key;
     removeAlertMarker(id);
-});
+}});
 
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
@@ -1623,7 +1572,7 @@ if (window.pendingOrder && window.pendingOrder.officerId) {{
 </script> </body> </html> """
 
 # ==============================
-# 19. HIỂN THỊ MAP TRONG CARD TRẮNG
+# 18. HIỂN THỊ MAP TRONG CARD
 # ==============================
 st.markdown('<div class="dashboard-card">', unsafe_allow_html=True)
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
@@ -1706,7 +1655,7 @@ with tab2:
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 20. CÁC PHẦN HIỂN THỊ THÔNG TIN PHỤ TRONG SIDEBAR
+# 19. THÔNG TIN PHỤ TRONG SIDEBAR
 # ==============================
 st.sidebar.markdown('<div class="sidebar-group"><h3>👥 TRỰC TUYẾN</h3></div>', unsafe_allow_html=True)
 if officers:
@@ -1738,9 +1687,6 @@ if incidents:
 else:
     st.sidebar.write("Chưa có ảnh hiện trường")
 
-# ==============================
-# 21. RA LỆNH CHO COMMANDER
-# ==============================
 if user_role == "commander" and officers:
     st.sidebar.markdown('<div class="sidebar-group"><h3>🚶 RA LỆNH DI CHUYỂN</h3></div>', unsafe_allow_html=True)
     st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
