@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 import base64
 import requests
 import math
+import uuid
 
 # ==============================
 # 0. HÀM TIỆN ÍCH
@@ -154,7 +155,6 @@ st.markdown("""
     background: #f3f4f6;
 }
 
-/* Sidebar */
 section[data-testid="stSidebar"] {
     background: #ffffff;
     border-right: 1px solid #e5e7eb;
@@ -185,31 +185,13 @@ section[data-testid="stSidebar"] .stTextArea textarea {
     color: #1f2937;
 }
 
-/* Button */
 .stButton button {
     border-radius: 8px;
     font-weight: 500;
     border: none;
     transition: 0.2s;
 }
-.primary-btn button {
-    background: #2563eb !important;
-    color: white !important;
-}
-.danger-btn button {
-    background: #dc2626 !important;
-    color: white !important;
-}
-.success-btn button {
-    background: #16a34a !important;
-    color: white !important;
-}
-.secondary-btn button {
-    background: #6b7280 !important;
-    color: white !important;
-}
 
-/* Card */
 .dashboard-card {
     background: white;
     padding: 20px;
@@ -218,7 +200,6 @@ section[data-testid="stSidebar"] .stTextArea textarea {
     margin-bottom: 20px;
 }
 
-/* Header */
 .custom-header {
     margin-bottom: 1.5rem;
 }
@@ -232,7 +213,6 @@ section[data-testid="stSidebar"] .stTextArea textarea {
     margin-top: 4px;
 }
 
-/* Sidebar group */
 .sidebar-group {
     margin-bottom: 24px;
 }
@@ -333,7 +313,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. GPS SCRIPT
+# 8. GPS SCRIPT (giữ nguyên, nhưng bỏ phần alert_requests)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -553,24 +533,6 @@ if st.session_state.sharing:
             timeout: 10000
         }});
     }}
-
-    const alertRequestsRef = ref(database, 'alert_requests');
-    onChildAdded(alertRequestsRef, (data) => {{
-        const req = data.val();
-        if (req.username === username) {{
-            const alertRef = ref(database, 'alerts/' + username);
-            update(alertRef, {{
-                name: req.name,
-                lat: req.lat,
-                lng: req.lng,
-                assigned: req.assigned || [],
-                status: req.status || "pending",
-                timestamp: serverTimestamp()
-            }});
-            update(ref(database, 'alert_requests/' + data.key), null);
-            onDisconnect(alertRef).remove();
-        }}
-    }});
     </script>
     <div style="text-align: center; color: green;">📡 Đang chia sẻ vị trí...</div>
     """
@@ -611,6 +573,13 @@ def cleanup_old_data():
             for key, inc in incidents.items():
                 if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
                     db.child("incidents").child(key).remove()
+        # Xóa alerts cũ quá 1 giờ
+        alerts = db.child("alerts").get().val()
+        if alerts:
+            now = int(time.time() * 1000)
+            for key, alert in alerts.items():
+                if now - alert.get("timestamp", 0) > 60 * 60 * 1000:
+                    db.child("alerts").child(key).remove()
     except Exception as e:
         print("Cleanup error:", e)
 
@@ -705,23 +674,28 @@ with st.sidebar:
             lat = user_data["lat"]
             lng = user_data["lng"]
             nearest = find_nearest_officers(lat, lng)
-            request_data = {
-                "username": username,
+            # Tạo alert trực tiếp, không qua alert_requests
+            alert_data = {
                 "name": name,
                 "lat": lat,
                 "lng": lng,
                 "assigned": nearest,
                 "status": "pending",
-                "timestamp": int(time.time() * 1000)
+                "timestamp": int(time.time() * 1000),
+                "created_by": username
             }
-            db.child("alert_requests").push(request_data)
+            # Tạo key duy nhất để tránh trùng
+            alert_key = db.child("alerts").push(alert_data)
+            # Gửi FCM cho các cán bộ được assigned
             server_key = st.secrets.get("fcm", {}).get("server_key", "")
             if server_key:
                 tokens = db.child("fcm_tokens").get().val() or {}
-                for uid, token in tokens.items():
-                    if uid != username:
-                        send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
-            st.success("Đã gửi yêu cầu báo động")
+                for uid in nearest:
+                    if uid != username and uid in tokens:
+                        token = tokens[uid].get("token") if isinstance(tokens[uid], dict) else tokens[uid]
+                        if token:
+                            send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
+            st.success("Đã gửi báo động!")
         else:
             st.error("Bạn chưa chia sẻ vị trí hợp lệ")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -733,16 +707,28 @@ with st.sidebar:
             found = False
             for key, alert in alerts.items():
                 assigned = alert.get("assigned", [])
-                if username in assigned:
-                    db.child("alerts").child(key).update({
-                        "status": "accepted",
-                        "accepted_by": name
-                    })
-                    st.success("Đã nhận nhiệm vụ")
-                    found = True
-                    break
+                if username in assigned and alert.get("status") == "pending":
+                    try:
+                        db.child("alerts").child(key).update({
+                            "status": "accepted",
+                            "accepted_by": name
+                        })
+                        chat_message = {
+                            "from": "system",
+                            "name": "Hệ thống",
+                            "message": f"✅ {name} đã nhận báo động từ {alert.get('name', 'cán bộ')}",
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        db.child("messages").push(chat_message)
+                        st.success(f"✅ Đã nhận nhiệm vụ từ {alert.get('name', 'cán bộ')}")
+                        found = True
+                        time.sleep(0.5)
+                        st.rerun()
+                        break
+                    except Exception as e:
+                        st.error(f"Lỗi khi nhận nhiệm vụ: {e}")
             if not found:
-                st.info("Không có nhiệm vụ nào cho bạn")
+                st.info("Không có nhiệm vụ nào đang chờ xử lý cho bạn")
         else:
             st.info("Không có báo động nào")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -961,7 +947,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ SỬA BÁO ĐỘNG)
+# 17. MAP HTML (SỬA LỖI ÂM THANH KHI RELOAD)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1307,8 +1293,10 @@ function updateOnlineStatus() {{
 }}
 setInterval(updateOnlineStatus, 30000);
 
+// ==================== ALERTS (đã sửa lỗi phát âm thanh khi reload) ====================
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
+
 function getAlertPopupContent(alert) {{
     let distanceText = "";
     if (officerMarkers[myUsername]) {{
@@ -1323,33 +1311,45 @@ function getAlertPopupContent(alert) {{
         else statusText = "🟨 Đang xử lý";
     }}
     else if (alert.status === "resolved") statusText = "🟩 Đã xong";
+    else if (alert.status === "expired") statusText = "⏰ Hết hạn";
     else statusText = "Không rõ";
     return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{statusText}}${{distanceText}}<br> ${{new Date(alert.timestamp).toLocaleString()}}`;
 }}
 
+// Lưu danh sách các alert đã xử lý âm thanh để tránh phát lại khi reload
+const playedAlerts = new Set();
+
 onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
-    if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {{
-        const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
-            .addTo(map)
-            .bindPopup(getAlertPopupContent(alert));
-        alertMarkers[id] = marker;
+    if (!alert.timestamp || alert.timestamp < oneDayAgo) return;
+    if (!isValidVNCoordinate(alert.lat, alert.lng)) return;
+    
+    const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
+        .addTo(map)
+        .bindPopup(getAlertPopupContent(alert));
+    alertMarkers[id] = marker;
 
-        if (alert.name !== myName) {{
-            alertSound.currentTime = 0;
-            alertSound.play().catch(e => console.log("Audio play error:", e));
-            map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
-            alertTimeouts[id] = setTimeout(() => {{
-                get(ref(db, 'alerts/' + id)).then((snapshot) => {{
-                    const currentAlert = snapshot.val();
-                    if (currentAlert && currentAlert.status === 'pending') {{
-                        removeAlertMarker(id);
-                        update(ref(db, 'alerts/' + id), {{ status: 'expired' }});
-                    }}
-                }}).catch(console.error);
-            }}, 10000);
-        }}
+    // Chỉ phát âm thanh nếu:
+    // 1. Không phải báo động của chính mình
+    // 2. Alert mới được tạo trong vòng 5 giây gần đây (tránh phát lại khi reload)
+    const now = Date.now();
+    const isRecent = (now - alert.timestamp) < 5000;
+    if (alert.name !== myName && isRecent && !playedAlerts.has(id)) {{
+        playedAlerts.add(id);
+        alertSound.currentTime = 0;
+        alertSound.play().catch(e => console.log("Audio play error:", e));
+        map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
+        // Tự động xóa sau 10 giây nếu vẫn pending
+        alertTimeouts[id] = setTimeout(() => {{
+            get(ref(db, 'alerts/' + id)).then((snapshot) => {{
+                const currentAlert = snapshot.val();
+                if (currentAlert && currentAlert.status === 'pending') {{
+                    removeAlertMarker(id);
+                    update(ref(db, 'alerts/' + id), {{ status: 'expired' }});
+                }}
+            }}).catch(console.error);
+        }}, 10000);
     }}
 }});
 
@@ -1369,6 +1369,7 @@ onChildRemoved(alertsRef, (data) => {{
     removeAlertMarker(id);
 }});
 
+// ==================== MARKERS, INCIDENTS, TRACKS, MOVE ORDERS (giữ nguyên) ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1598,24 +1599,30 @@ with tab2:
             vn_time = datetime.fromtimestamp(
                 msg["timestamp"]/1000, tz=timezone(timedelta(hours=7))
             ).strftime("%H:%M")
-            is_me = (msg["from"] == username)
-            avatar = msg['name'][0].upper()
-            align = "right" if is_me else "left"
-            bg_color = "#dcf8c6" if is_me else "#f1f0f0"
+            is_system = msg["from"] == "system"
+            if is_system:
+                avatar = "🤖"
+                bg_color = "#e5e7eb"
+                align = "center"
+            else:
+                is_me = (msg["from"] == username)
+                avatar = msg['name'][0].upper()
+                bg_color = "#dcf8c6" if is_me else "#f1f0f0"
+                align = "right" if is_me else "left"
             st.markdown(
                 f"""
                 <div style='display:flex; justify-content:{align}; margin:10px 0;'>
                     <div style='display:flex; align-items:flex-end; max-width:80%; gap:8px;'>
-                        {"<div style='order:2;' " if is_me else ""}
+                        {"<div style='order:2;' " if not is_system and is_me else ""}
                             <div style='background:{bg_color}; padding:10px 15px; border-radius:15px; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
                                 <b>{msg['name']}</b> <span style='font-size:10px; color:gray'>{vn_time}</span><br>
                                 {msg['message']}
                             </div>
-                        {"</div>" if is_me else ""}
+                        {"</div>" if not is_system and is_me else ""}
                         <div style='width:36px; height:36px; background: #2563eb; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:white;'>
                             {avatar}
                         </div>
-                        {"<div style='order:2;' " if not is_me else ""}</div>
+                        {"<div style='order:2;' " if not is_system and not is_me else ""}</div>
                     </div>
                 </div>
                 """,
