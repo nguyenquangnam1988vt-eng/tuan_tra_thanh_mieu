@@ -1182,87 +1182,88 @@ stationaryOfficers.forEach(officer => {{
 }});
 
 // ==================== OFFICERS - FIX FULL KHÔNG MẤT NGƯỜI ====================
+// ==================== OFFICERS - FIX FULL KHÔNG MẤT NGƯỜI ====================
 const officersRef = ref(db, 'officers');
 
 // 📴 Tự xóa khi mất kết nối
 onDisconnect(ref(db, 'officers/' + myUsername)).remove();
 
 // 🔥 SYNC TOÀN BỘ (QUAN TRỌNG NHẤT)
-onValue(officersRef, (snapshot) => {
-    const officers = snapshot.val() || {};
+onValue(officersRef, (snapshot) => {{
+    const officers = snapshot.val() || {{}};
 
     // 🧹 Xóa toàn bộ marker cũ
-    Object.keys(officerMarkers).forEach(uid => {
-        if (officerMarkers[uid]) {
+    Object.keys(officerMarkers).forEach(uid => {{
+        if (officerMarkers[uid]) {{
             map.removeLayer(officerMarkers[uid]);
-        }
-    });
+        }}
+    }});
 
-    officerMarkers = {};
+    officerMarkers = {{}};
 
     // 🔄 Vẽ lại toàn bộ officers
-    Object.entries(officers).forEach(([id, officer]) => {
+    Object.entries(officers).forEach(([id, officer]) => {{
 
         if (!officer) return;
         if (typeof officer.lat !== 'number' || typeof officer.lng !== 'number') return;
 
-        if (!isValidVNCoordinate(officer.lat, officer.lng)) {
+        if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
             console.warn("❌ Tọa độ lỗi:", id, officer);
             return;
-        }
+        }}
 
         const color = getOfficerColor(id);
         const icon = createOfficerIcon(color);
 
-        const marker = L.marker([officer.lat, officer.lng], {
+        const marker = L.marker([officer.lat, officer.lng], {{
             icon: icon
-        }).addTo(map);
+        }}).addTo(map);
 
-        marker.bindTooltip(officer.name || id, {
+        marker.bindTooltip(officer.name || id, {{
             permanent: true,
             direction: 'top',
             offset: [0, -12],
             className: 'officer-label'
-        });
+        }});
 
         officerMarkers[id] = marker;
 
         // 🎯 Zoom về vị trí mình lần đầu
-        if (id === myUsername && !sessionStorage.getItem('zoomedToMe')) {
+        if (id === myUsername && !sessionStorage.getItem('zoomedToMe')) {{
             map.setView([officer.lat, officer.lng], 16);
             sessionStorage.setItem('zoomedToMe', 'true');
-        }
-    });
+        }}
+    }});
 
     console.log("✅ Sync officers:", Object.keys(officers).length);
-});
+}});
 
 // ==================== ONLINE / OFFLINE ====================
 const OFFLINE_TIMEOUT = 60000;
 
-function updateOnlineStatus() {
+function updateOnlineStatus() {{
     const now = Date.now();
 
-    get(officersRef).then((snapshot) => {
-        const officers = snapshot.val() || {};
+    get(officersRef).then((snapshot) => {{
+        const officers = snapshot.val() || {{}};
 
-        Object.keys(officers).forEach(uid => {
+        Object.keys(officers).forEach(uid => {{
             const marker = officerMarkers[uid];
             if (!marker) return;
 
             const lastUpdate = officers[uid].lastUpdate || 0;
 
             let color;
-            if (now - lastUpdate > OFFLINE_TIMEOUT) {
-                color = '#aaa'; // offline
-            } else {
-                color = getOfficerColor(uid); // online
-            }
+            if (now - lastUpdate > OFFLINE_TIMEOUT) {{
+                color = '#aaa';
+            }} else {{
+                color = getOfficerColor(uid);
+            }}
 
             marker.setIcon(createOfficerIcon(color));
-        });
-    }).catch(console.error);
-}
+        }});
+    }}).catch(console.error);
+}}
 
 setInterval(updateOnlineStatus, 30000);
 
