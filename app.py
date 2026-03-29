@@ -1182,7 +1182,6 @@ stationaryOfficers.forEach(officer => {{
 }});
 
 // ==================== OFFICERS - FIX FULL KHÔNG MẤT NGƯỜI ====================
-// ==================== OFFICERS - FIX FULL KHÔNG MẤT NGƯỜI ====================
 const officersRef = ref(db, 'officers');
 
 // 📴 Tự xóa khi mất kết nối
