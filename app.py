@@ -319,7 +319,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. GPS SCRIPT (xóa dữ liệu khi mất kết nối)
+# 8. GPS SCRIPT
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -342,7 +342,7 @@ if st.session_state.sharing:
     const officerName = "{name}";
     const officerRef = ref(database, 'officers/' + username);
 
-    // Quan trọng: xóa hoàn toàn dữ liệu khi mất kết nối
+    // Xóa hoàn toàn khi mất kết nối
     onDisconnect(officerRef).remove();
 
     update(officerRef, {{
@@ -567,7 +567,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 10. CLEANUP (giảm thời gian xuống 2 phút)
+# 10. CLEANUP
 # ==============================
 def cleanup_old_data():
     try:
@@ -577,7 +577,6 @@ def cleanup_old_data():
             for key, inc in incidents.items():
                 if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
                     db.child("incidents").child(key).remove()
-        
         alerts = db.child("alerts").get().val()
         if alerts:
             now = int(time.time() * 1000)
@@ -593,8 +592,7 @@ def cleanup_offline_officers():
         if not officers:
             return
         now = int(time.time() * 1000)
-        # Giảm thời gian xuống 2 phút (120000 ms)
-        limit = 2 * 60 * 1000
+        limit = 2 * 60 * 1000  # 2 phút
         for uid, data in officers.items():
             last_update = data.get("lastUpdate")
             if last_update and now - int(last_update) > limit:
@@ -642,7 +640,7 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 11. STATIONARY OFFICERS (chỉ hiển thị người còn online)
+# 11. STATIONARY OFFICERS
 # ==============================
 def detect_stationary_officers():
     try:
@@ -650,7 +648,6 @@ def detect_stationary_officers():
         if not officers:
             return []
         now = int(time.time() * 1000)
-        # Chỉ xét người cập nhật trong 60 giây gần nhất
         online_limit = 60 * 1000
         threshold = 15 * 60 * 1000
         stationary = []
@@ -671,7 +668,7 @@ def detect_stationary_officers():
         return []
 
 # ==============================
-# 12. SIDEBAR PHÂN NHÓM VÀ CARD
+# 12. SIDEBAR
 # ==============================
 st.sidebar.markdown('<div class="sidebar-group"><h3>🚨 ĐIỀU HÀNH</h3></div>', unsafe_allow_html=True)
 with st.sidebar:
@@ -851,7 +848,7 @@ with st.sidebar:
         st.session_state.show_tracks = {}
 
 # ==============================
-# 13. LOAD DỮ LIỆU (chỉ hiển thị người online)
+# 13. LOAD DỮ LIỆU
 # ==============================
 with st.spinner("🔄 Đang tải dữ liệu..."):
     @st.cache_data(ttl=5)
@@ -860,7 +857,7 @@ with st.spinner("🔄 Đang tải dữ liệu..."):
             result = db.child("officers").get().val()
             if result:
                 now = int(time.time() * 1000)
-                online_limit = 60 * 1000  # 60 giây
+                online_limit = 60 * 1000
                 filtered = {}
                 for uid, data in result.items():
                     last_update = data.get("lastUpdate")
@@ -961,7 +958,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML (SỬA TRIỆT ĐỂ MARKER MA + ÂM THANH)
+# 17. MAP HTML (VỚI ALERTS MỚI)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1006,7 +1003,6 @@ let map = null;
 let officerMarkers = {{}};
 let alertMarkers = {{}};
 let alertTimeouts = {{}};
-let playedAlerts = new Set();
 let pointMarkers = {{}};
 let incidentMarkers = {{}};
 let trackPolylines = {{}};
@@ -1044,10 +1040,10 @@ function initAudio() {{
     if (alertSound) return;
     alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
     alertSound.preload = "auto";
-    alertSound.loop = false;  // KHÔNG lặp
+    alertSound.loop = false;
 }}
 
-// Dừng âm thanh an toàn
+// Dừng âm thanh
 function stopAlertSound() {{
     if (alertSound && !alertSound.paused) {{
         alertSound.pause();
@@ -1056,7 +1052,7 @@ function stopAlertSound() {{
     }}
 }}
 
-// Xóa marker báo động và dừng âm thanh nếu cần
+// Xóa marker báo động
 function removeAlertMarker(alertId) {{
     if (alertMarkers[alertId]) {{
         map.removeLayer(alertMarkers[alertId]);
@@ -1067,13 +1063,12 @@ function removeAlertMarker(alertId) {{
         clearTimeout(alertTimeouts[alertId]);
         delete alertTimeouts[alertId];
     }}
-    // Nếu không còn alert nào, dừng âm thanh
     if (Object.keys(alertMarkers).length === 0) {{
         stopAlertSound();
     }}
 }}
 
-// Tạo marker officer
+// Tạo icon officer
 function createOfficerIcon(color) {{
     return L.divIcon({{
         className: '',
@@ -1126,7 +1121,7 @@ function initMap() {{
     }}
 }}
 
-// Khởi tạo NoSleep
+// NoSleep
 let noSleep = new NoSleep();
 document.addEventListener('click', function enableNoSleep() {{
     noSleep.enable();
@@ -1150,7 +1145,7 @@ onMessage(messaging, payload => {{
 initMap();
 initAudio();
 
-// Active audio khi click
+// Kích hoạt audio khi click
 document.addEventListener("click", () => {{
     if (!audioActivated && alertSound) {{
         alertSound.load();
@@ -1171,91 +1166,7 @@ stationaryOfficers.forEach(officer => {{
 
 const officersRef = ref(db, 'officers');
 
-function activateSelectionMode(officerId, officerName) {{
-    if (selectionMode) return;
-    selectionMode = true;
-    selectedOfficerId = officerId;
-    selectedOfficerName = officerName;
-    hasSelected = false;
-
-    const infoControl = L.control({{ position: 'topright' }});
-    infoControl.onAdd = () => {{
-        const div = L.DomUtil.create('div', 'selection-info');
-        div.innerHTML = `
-            <span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span>
-            <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
-        `;
-        div.style.cursor = 'default';
-        L.DomEvent.disableClickPropagation(div);
-        return div;
-    }};
-    infoControl.addTo(map);
-    tempInfoControl = infoControl;
-
-    setTimeout(() => {{
-        const cancelBtn = document.getElementById('cancel-order-btn');
-        if (cancelBtn) {{
-            cancelBtn.onclick = () => {{
-                deactivateSelectionMode();
-            }};
-        }}
-    }}, 100);
-
-    map.getContainer().style.cursor = 'crosshair';
-
-    map.on('touchstart', (e) => {{
-        if (!selectionMode || hasSelected) return;
-        const touch = e.originalEvent.touches[0];
-        const latlng = map.mouseEventToLatLng(touch);
-        holdTimer = setTimeout(() => {{
-            if (hasSelected) return;
-            hasSelected = true;
-            const endLat = latlng.lat;
-            const endLng = latlng.lng;
-            const startMarker = officerMarkers[selectedOfficerId];
-            if (startMarker) {{
-                const startLatLng = startMarker.getLatLng();
-                const orderData = {{
-                    officerId: selectedOfficerId,
-                    fromLat: startLatLng.lat,
-                    fromLng: startLatLng.lng,
-                    toLat: endLat,
-                    toLng: endLng,
-                    commanderName: myName,
-                    commanderId: myUsername,
-                    timestamp: Date.now(),
-                    status: 'active'
-                }};
-                push(ref(db, 'move_orders'), orderData);
-                const marker = L.marker([endLat, endLng]).addTo(map);
-                marker.bindPopup("📍 Đã chọn điểm (giữ 5s)").openPopup();
-                setTimeout(() => map.removeLayer(marker), 5000);
-                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-            }}
-            deactivateSelectionMode();
-        }}, 5000);
-    }});
-    map.on('touchend', () => {{
-        clearTimeout(holdTimer);
-    }});
-    map.on('touchcancel', () => {{
-        clearTimeout(holdTimer);
-    }});
-}}
-
-function deactivateSelectionMode() {{
-    if (!selectionMode) return;
-    if (tempInfoControl) map.removeControl(tempInfoControl);
-    map.getContainer().style.cursor = '';
-    if (holdTimer) clearTimeout(holdTimer);
-    selectionMode = false;
-    selectedOfficerId = null;
-    selectedOfficerName = null;
-    tempInfoControl = null;
-    hasSelected = false;
-}}
-
-// Xóa marker cũ trước khi tạo mới (chống marker ma)
+// Xóa marker cũ trước khi tạo mới
 function removeOfficerMarkerIfExists(uid) {{
     if (officerMarkers[uid]) {{
         map.removeLayer(officerMarkers[uid]);
@@ -1264,12 +1175,10 @@ function removeOfficerMarkerIfExists(uid) {{
     }}
 }}
 
-// Lắng nghe officer
 onChildAdded(officersRef, (data) => {{
     const officer = data.val();
     const id = data.key;
     if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
-    // Xóa marker cũ trước khi tạo mới
     removeOfficerMarkerIfExists(id);
     const color = getOfficerColor(id);
     const icon = createOfficerIcon(color);
@@ -1340,10 +1249,17 @@ function updateOnlineStatus() {{
 }}
 setInterval(updateOnlineStatus, 30000);
 
-// ALERTS - ĐÃ SỬA HOÀN TOÀN
+// ==================== ALERTS - FIX FULL ====================
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 
+// Lưu trạng thái alert đã phát (tránh phát lại khi reload)
+const playedAlerts = new Set(JSON.parse(sessionStorage.getItem("playedAlerts") || "[]"));
+function savePlayedAlerts() {{
+    sessionStorage.setItem("playedAlerts", JSON.stringify([...playedAlerts]));
+}}
+
+// Nội dung popup
 function getAlertPopupContent(alert) {{
     let distanceText = "";
     if (officerMarkers[myUsername]) {{
@@ -1351,91 +1267,111 @@ function getAlertPopupContent(alert) {{
         const distance = haversine(myLatLng.lat, myLatLng.lng, alert.lat, alert.lng);
         distanceText = `<br>Khoảng cách: ${{(distance/1000).toFixed(2)}} km`;
     }}
+
     let statusText = "";
     if (alert.status === "pending") statusText = "🟥 Chưa xử lý";
-    else if (alert.status === "accepted") {{
-        if (alert.accepted_by) statusText = `🟨 Đang xử lý bởi ${{alert.accepted_by}}`;
-        else statusText = "🟨 Đang xử lý";
-    }}
+    else if (alert.status === "accepted") statusText = `🟨 Đang xử lý bởi ${{alert.accepted_by || ""}}`;
     else if (alert.status === "resolved") statusText = "🟩 Đã xong";
     else if (alert.status === "expired") statusText = "⏰ Hết hạn";
     else statusText = "Không rõ";
-    return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{statusText}}${{distanceText}}<br> ${{new Date(alert.timestamp).toLocaleString()}}`;
+
+    return `🚨 <b>Báo động từ ${{alert.name}}</b><br>
+            Trạng thái: ${{statusText}}
+            ${{distanceText}}<br>
+            ${{new Date(alert.timestamp).toLocaleString()}}`;
 }}
 
+// Icon báo động
 const alertIcon = L.divIcon({{
-    className: '', html: '<div class="alert-marker"></div>',
-    iconSize: [24, 24], popupAnchor: [0, -12]
+    className: '',
+    html: '<div class="alert-marker"></div>',
+    iconSize: [24, 24],
+    popupAnchor: [0, -12]
 }});
 
+// ===== NHẬN ALERT =====
 onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
+
     if (!alert.timestamp || alert.timestamp < oneDayAgo) return;
     if (!isValidVNCoordinate(alert.lat, alert.lng)) return;
-    
-    // Chỉ hiển thị nếu chưa có marker
+
+    // Tạo marker nếu chưa có
     if (!alertMarkers[id]) {{
         const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
             .addTo(map)
             .bindPopup(getAlertPopupContent(alert));
         alertMarkers[id] = marker;
-        console.log(`🆕 Alert mới: ${{id}} từ ${{alert.name}}`);
     }}
 
-    // Chỉ phát âm thanh nếu:
-    // 1. Không phải báo động của chính mình
-    // 2. Alert mới trong 5 giây
-    // 3. Chưa phát lần nào
     const now = Date.now();
-    const isRecent = (now - alert.timestamp) < 5000;
-    if (alert.name !== myName && isRecent && !playedAlerts.has(id)) {{
+
+    // ⛔ FIX QUAN TRỌNG: dùng username thay vì name
+    const isMyAlert = (alert.created_by === myUsername);
+
+    // ⛔ FIX: tăng thời gian nhận alert lên 15s
+    const isRecent = (now - alert.timestamp) < 15000;
+
+    // Phát âm thanh
+    if (!isMyAlert && isRecent && !playedAlerts.has(id)) {{
         playedAlerts.add(id);
+        savePlayedAlerts();
+
         if (audioActivated && alertSound) {{
             alertSound.currentTime = 0;
-            alertSound.play().catch(e => console.log("Audio play error:", e));
-            console.log(`🔊 Đang phát âm thanh cho alert ${{id}}`);
+            alertSound.play().catch(() => {{}});
+        }} else {{
+            console.log("⚠️ Click vào màn hình để bật âm thanh");
         }}
-        map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
-        
-        // Chốt an toàn: tự động dừng sau 15 giây
-        const safeTimeout = setTimeout(() => {{
-            stopAlertSound();
+
+        // Zoom nhẹ (tránh giật)
+        if (!map._animatingZoom) {{
+            map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
+        }}
+
+        // Tự dừng âm thanh sau 15s
+        setTimeout(() => {{
+            if (alertSound && !alertSound.paused) {{
+                alertSound.pause();
+                alertSound.currentTime = 0;
+            }}
         }}, 15000);
-        
-        // Tự động xóa sau 10 giây nếu vẫn pending
+
+        // ⛔ FIX: tăng timeout lên 20s
         alertTimeouts[id] = setTimeout(() => {{
             get(ref(db, 'alerts/' + id)).then((snapshot) => {{
                 const currentAlert = snapshot.val();
                 if (currentAlert && currentAlert.status === 'pending') {{
                     removeAlertMarker(id);
                     update(ref(db, 'alerts/' + id), {{ status: 'expired' }});
-                    console.log(`⏰ Alert ${{id}} đã hết hạn sau 10s`);
                 }}
-            }}).catch(console.error);
-            clearTimeout(safeTimeout);
-        }}, 10000);
+            }});
+        }}, 20000);
     }}
 }});
 
+// ===== UPDATE ALERT =====
 onChildChanged(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
+
     if (alertMarkers[id]) {{
         alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
-        if (alert.status === 'accepted' || alert.status === 'resolved' || alert.status === 'expired') {{
+
+        if (["accepted", "resolved", "expired"].includes(alert.status)) {{
             removeAlertMarker(id);
-            console.log(`✅ Alert ${{id}} đã được xử lý: ${{alert.status}}`);
         }}
     }}
 }});
 
+// ===== XÓA ALERT =====
 onChildRemoved(alertsRef, (data) => {{
     const id = data.key;
     removeAlertMarker(id);
 }});
 
-// MARKERS và INCIDENTS
+// ==================== MARKERS, INCIDENTS, TRACKS, MOVE ORDERS ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1635,6 +1571,90 @@ onValue(officersRef, (snapshot) => {{
     const officers = snapshot.val() || {{}};
     if (Object.keys(officers).length > 1) zoomToAllOfficers();
 }});
+
+function activateSelectionMode(officerId, officerName) {{
+    if (selectionMode) return;
+    selectionMode = true;
+    selectedOfficerId = officerId;
+    selectedOfficerName = officerName;
+    hasSelected = false;
+
+    const infoControl = L.control({{ position: 'topright' }});
+    infoControl.onAdd = () => {{
+        const div = L.DomUtil.create('div', 'selection-info');
+        div.innerHTML = `
+            <span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span>
+            <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
+        `;
+        div.style.cursor = 'default';
+        L.DomEvent.disableClickPropagation(div);
+        return div;
+    }};
+    infoControl.addTo(map);
+    tempInfoControl = infoControl;
+
+    setTimeout(() => {{
+        const cancelBtn = document.getElementById('cancel-order-btn');
+        if (cancelBtn) {{
+            cancelBtn.onclick = () => {{
+                deactivateSelectionMode();
+            }};
+        }}
+    }}, 100);
+
+    map.getContainer().style.cursor = 'crosshair';
+
+    map.on('touchstart', (e) => {{
+        if (!selectionMode || hasSelected) return;
+        const touch = e.originalEvent.touches[0];
+        const latlng = map.mouseEventToLatLng(touch);
+        holdTimer = setTimeout(() => {{
+            if (hasSelected) return;
+            hasSelected = true;
+            const endLat = latlng.lat;
+            const endLng = latlng.lng;
+            const startMarker = officerMarkers[selectedOfficerId];
+            if (startMarker) {{
+                const startLatLng = startMarker.getLatLng();
+                const orderData = {{
+                    officerId: selectedOfficerId,
+                    fromLat: startLatLng.lat,
+                    fromLng: startLatLng.lng,
+                    toLat: endLat,
+                    toLng: endLng,
+                    commanderName: myName,
+                    commanderId: myUsername,
+                    timestamp: Date.now(),
+                    status: 'active'
+                }};
+                push(ref(db, 'move_orders'), orderData);
+                const marker = L.marker([endLat, endLng]).addTo(map);
+                marker.bindPopup("📍 Đã chọn điểm (giữ 5s)").openPopup();
+                setTimeout(() => map.removeLayer(marker), 5000);
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            }}
+            deactivateSelectionMode();
+        }}, 5000);
+    }});
+    map.on('touchend', () => {{
+        clearTimeout(holdTimer);
+    }});
+    map.on('touchcancel', () => {{
+        clearTimeout(holdTimer);
+    }});
+}}
+
+function deactivateSelectionMode() {{
+    if (!selectionMode) return;
+    if (tempInfoControl) map.removeControl(tempInfoControl);
+    map.getContainer().style.cursor = '';
+    if (holdTimer) clearTimeout(holdTimer);
+    selectionMode = false;
+    selectedOfficerId = null;
+    selectedOfficerName = null;
+    tempInfoControl = null;
+    hasSelected = false;
+}}
 
 if (window.pendingOrder && window.pendingOrder.officerId) {{
     const checkInterval = setInterval(() => {{
