@@ -1333,42 +1333,92 @@ function getAlertPopupContent(alert) {{
     return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{statusText}}${{distanceText}}<br> ${{new Date(alert.timestamp).toLocaleString()}}`;
 }}
 
-onChildAdded(alertsRef, (data) => {{
+const alertsRef = ref(db, 'alerts');
+const oneDayAgo = Date.now() - 24*60*60*1000;
+
+function getAlertPopupContent(alert) {
+    let distanceText = "";
+    if (officerMarkers[myUsername]) {
+        const myLatLng = officerMarkers[myUsername].getLatLng();
+        const distance = haversine(myLatLng.lat, myLatLng.lng, alert.lat, alert.lng);
+        distanceText = `<br>Khoảng cách: ${(distance/1000).toFixed(2)} km`;
+    }
+    let statusText = "";
+    if (alert.status === "pending") statusText = "🟥 Chưa xử lý";
+    else if (alert.status === "accepted") {
+        if (alert.accepted_by) statusText = `🟨 Đang xử lý bởi ${alert.accepted_by}`;
+        else statusText = "🟨 Đang xử lý";
+    }
+    else if (alert.status === "resolved") statusText = "🟩 Đã xong";
+    else statusText = "Không rõ";
+    return `🚨 <b>Báo động từ ${alert.name}</b><br> Trạng thái: ${statusText}${distanceText}<br> ${new Date(alert.timestamp).toLocaleString()}`;
+}
+
+function removeAlertMarker(alertId) {
+    if (alertMarkers[alertId]) {
+        map.removeLayer(alertMarkers[alertId]);
+        delete alertMarkers[alertId];
+    }
+    if (alertTimeouts[alertId]) {
+        clearTimeout(alertTimeouts[alertId]);
+        delete alertTimeouts[alertId];
+    }
+    // Nếu không còn alert nào, dừng âm thanh
+    if (Object.keys(alertMarkers).length === 0 && !alertSound.paused) {
+        alertSound.pause();
+        alertSound.currentTime = 0;
+    }
+}
+
+onChildAdded(alertsRef, (data) => {
     const alert = data.val();
     const id = data.key;
-    if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {{
-        const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
+    if (alert.timestamp && alert.timestamp > oneDayAgo && isValidVNCoordinate(alert.lat, alert.lng)) {
+        const marker = L.marker([alert.lat, alert.lng], { icon: alertIcon })
             .addTo(map)
             .bindPopup(getAlertPopupContent(alert));
         alertMarkers[id] = marker;
-        if (alert.name !== myName) {{
+
+        if (alert.name !== myName) {
+            // Phát âm thanh
             alertSound.currentTime = 0;
             alertSound.play().catch(e => console.log("Audio play error:", e));
-            map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
-            alertTimeouts[id] = setTimeout(() => stopAlert(id), 10000);
-        }}
-    }}
-}});
+            // Bay tới vị trí báo động
+            map.flyTo([alert.lat, alert.lng], 17, { animate: true, duration: 1.5 });
 
-onChildChanged(alertsRef, (data) => {{
+            // Tự động xóa marker sau 10 giây nếu vẫn còn pending
+            alertTimeouts[id] = setTimeout(() => {
+                // Kiểm tra lại trạng thái hiện tại của alert
+                get(ref(db, 'alerts/' + id)).then((snapshot) => {
+                    const currentAlert = snapshot.val();
+                    if (currentAlert && currentAlert.status === 'pending') {
+                        // Xóa marker khỏi map
+                        removeAlertMarker(id);
+                        // Có thể cập nhật trạng thái thành 'expired' nếu muốn lưu lịch sử
+                        update(ref(db, 'alerts/' + id), { status: 'expired' });
+                    }
+                }).catch(console.error);
+            }, 10000);
+        }
+    }
+});
+
+onChildChanged(alertsRef, (data) => {
     const alert = data.val();
     const id = data.key;
-    if (alertMarkers[id]) {{
+    if (alertMarkers[id]) {
         alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
-        if ((alert.status === 'accepted' || alert.status === 'resolved') && alertTimeouts[id]) {{
-            stopAlert(id);
-        }}
-    }}
-}});
+        // Nếu báo động được chấp nhận hoặc resolved, xóa marker ngay lập tức
+        if (alert.status === 'accepted' || alert.status === 'resolved' || alert.status === 'expired') {
+            removeAlertMarker(id);
+        }
+    }
+});
 
-onChildRemoved(alertsRef, (data) => {{
+onChildRemoved(alertsRef, (data) => {
     const id = data.key;
-    if (alertMarkers[id]) {{
-        map.removeLayer(alertMarkers[id]);
-        delete alertMarkers[id];
-    }}
-    stopAlert(id);
-}});
+    removeAlertMarker(id);
+});
 
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
