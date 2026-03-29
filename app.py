@@ -138,11 +138,11 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. CẤU HÌNH TRANG VÀ CSS MỚI
+# 4. CẤU HÌNH TRANG VÀ CSS
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
-# ===== CSS MỚI (nền sáng, sidebar đậm, button xanh) =====
+# ===== CSS CẢI TIẾN (chữ rõ, sidebar đẹp) =====
 st.markdown("""
 <style>
 /* ===== FONT ===== */
@@ -160,10 +160,33 @@ html, body, [class*="css"] {
 /* ===== SIDEBAR ===== */
 section[data-testid="stSidebar"] {
     background: #1e293b;
+    color: #f1f5f9 !important;
+}
+section[data-testid="stSidebar"] .stMarkdown, 
+section[data-testid="stSidebar"] .stText, 
+section[data-testid="stSidebar"] .stSelectbox label,
+section[data-testid="stSidebar"] .stCheckbox label {
+    color: #f1f5f9 !important;
+}
+section[data-testid="stSidebar"] .stButton button {
+    background: #2563eb;
     color: white;
 }
+section[data-testid="stSidebar"] .stButton button:hover {
+    background: #1d4ed8;
+}
+section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] {
+    background-color: #334155;
+    color: white;
+}
+section[data-testid="stSidebar"] .stTextInput input, 
+section[data-testid="stSidebar"] .stTextArea textarea {
+    background-color: #334155 !important;
+    color: white !important;
+    border-color: #475569 !important;
+}
 
-/* ===== BUTTON ===== */
+/* ===== BUTTON CHUNG ===== */
 .stButton button {
     border-radius: 10px;
     background: #2563eb;
@@ -173,7 +196,6 @@ section[data-testid="stSidebar"] {
     padding: 8px 16px;
     transition: 0.2s;
 }
-
 .stButton button:hover {
     background: #1d4ed8;
 }
@@ -193,7 +215,16 @@ h1, h2, h3 {
 .block-container {
     padding-top: 2rem;
 }
-
+.sidebar-card {
+    background: #334155;
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    color: #f1f5f9;
+}
+.sidebar-card .stButton button {
+    background: #2563eb;
+}
 /* ===== SCROLL ===== */
 ::-webkit-scrollbar {
     width: 6px;
@@ -923,7 +954,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 19. MAP HTML (NÂNG CẤP MARKER, HIỆU ỨNG)
+# 19. MAP HTML (SỬA LỖI BÁO ĐỘNG)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1036,6 +1067,7 @@ map.on('moveend', () => {{
 
 const officerMarkers = {{}};
 const alertMarkers = {{}};
+const alertTimeouts = {{}}; // Lưu timeout để tắt âm thanh
 const pointMarkers = {{}};
 const incidentMarkers = {{}};
 const trackPolylines = {{}};
@@ -1053,6 +1085,7 @@ let holdTimer = null;
 
 const alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
 alertSound.preload = "auto";
+alertSound.loop = true; // Lặp âm thanh cho đến khi dừng
 if (!sessionStorage.getItem('audioActivated')) {{
     document.addEventListener("click", () => {{
         alertSound.load();
@@ -1060,6 +1093,18 @@ if (!sessionStorage.getItem('audioActivated')) {{
     }}, {{ once: true }});
 }} else {{
     alertSound.load();
+}}
+
+function stopAlert(alertId) {{
+    if (alertTimeouts[alertId]) {{
+        clearTimeout(alertTimeouts[alertId]);
+        delete alertTimeouts[alertId];
+    }}
+    // Dừng âm thanh nếu không còn alert nào đang hoạt động
+    if (Object.keys(alertTimeouts).length === 0 && !alertSound.paused) {{
+        alertSound.pause();
+        alertSound.currentTime = 0;
+    }}
 }}
 
 const alertIcon = L.divIcon({{
@@ -1233,7 +1278,6 @@ onChildChanged(officersRef, (data) => {{
         const lat = start.lat + (end.lat - start.lat) * (step / steps);
         const lng = start.lng + (end.lng - start.lng) * (step / steps);
         marker.setLatLng([lat, lng]);
-        // Cập nhật icon với màu hiện tại (có thể thay đổi nếu offline)
         const currentColor = getOfficerColor(id);
         marker.setIcon(createOfficerIcon(currentColor));
         if (step < steps) requestAnimationFrame(animate);
@@ -1276,7 +1320,7 @@ function updateOnlineStatus() {{
 }}
 setInterval(updateOnlineStatus, 30000);
 
-// Alerts (giữ nguyên)
+// Alerts (có cơ chế dừng)
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 function getAlertPopupContent(alert) {{
@@ -1296,6 +1340,7 @@ function getAlertPopupContent(alert) {{
     else statusText = "Không rõ";
     return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{statusText}}${{distanceText}}<br> ${{new Date(alert.timestamp).toLocaleString()}}`;
 }}
+
 onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
@@ -1304,24 +1349,39 @@ onChildAdded(alertsRef, (data) => {{
             .addTo(map)
             .bindPopup(getAlertPopupContent(alert));
         alertMarkers[id] = marker;
+        
+        // Phát âm thanh và bật popup nếu không phải báo động của chính mình
         if (alert.name !== myName) {{
             alertSound.currentTime = 0;
             alertSound.play().catch(e => console.log("Audio play error:", e));
             map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
+            // Tự động dừng sau 10 giây
+            alertTimeouts[id] = setTimeout(() => {{
+                stopAlert(id);
+            }}, 10000);
         }}
     }}
 }});
+
 onChildChanged(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
-    if (alertMarkers[id]) alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
+    if (alertMarkers[id]) {{
+        alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
+        // Nếu trạng thái là accepted hoặc resolved và âm thanh đang phát thì dừng
+        if ((alert.status === 'accepted' || alert.status === 'resolved') && alertTimeouts[id]) {{
+            stopAlert(id);
+        }}
+    }}
 }});
+
 onChildRemoved(alertsRef, (data) => {{
     const id = data.key;
     if (alertMarkers[id]) {{
         map.removeLayer(alertMarkers[id]);
         delete alertMarkers[id];
     }}
+    stopAlert(id);
 }});
 
 // Markers và incidents (giữ nguyên)
@@ -1563,7 +1623,6 @@ with tab2:
             avatar = msg['name'][0].upper()
             align = "right" if is_me else "left"
             bg_color = "#dcf8c6" if is_me else "#f1f0f0"
-            text_color = "black" if is_me else "#333"
             st.markdown(
                 f"""
                 <div style='display:flex; justify-content:{align}; margin:10px 0;'>
