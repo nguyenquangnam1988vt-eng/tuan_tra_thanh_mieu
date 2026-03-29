@@ -38,6 +38,10 @@ def is_valid_coordinate(lat, lng):
     try:
         lat = float(lat)
         lng = float(lng)
+        if lat == 0 and lng == 0:
+            return False
+        if lat < 8 or lat > 24 or lng < 102 or lng > 110:
+            return False
         return True
     except:
         return False
@@ -271,12 +275,18 @@ for uid, data in config["credentials"]["usernames"].items():
     else:
         user_colors[uid] = data.get("color", "#0066cc")
 
-# Xóa dữ liệu vị trí cũ của người dùng khi đăng nhập lại
-try:
-    db.child("officers").child(username).remove()
-    print(f"Đã xóa dữ liệu vị trí cũ của {username}")
-except Exception as e:
-    print(f"Lỗi xóa dữ liệu cũ: {e}")
+# Xóa dữ liệu vị trí cũ nếu quá hạn 5 phút
+existing = db.child("officers").child(username).get().val()
+if existing:
+    last_update = existing.get("lastUpdate")
+    now_ms = int(time.time() * 1000)
+    if last_update and (now_ms - int(last_update)) > 5 * 60 * 1000:
+        db.child("officers").child(username).remove()
+        st.sidebar.info("Đã xóa dữ liệu vị trí cũ (quá hạn). Vui lòng bắt đầu chia sẻ lại.")
+    else:
+        st.sidebar.info("Đã khôi phục vị trí từ phiên trước.")
+else:
+    pass
 
 db.child("users").child(username).set({
     "name": name,
@@ -289,12 +299,17 @@ db.child("users").child(username).set({
 # 6. CHIA SẺ VỊ TRÍ
 # ==============================
 if "sharing" not in st.session_state:
-    st.session_state.sharing = False
+    existing = db.child("officers").child(username).get().val()
+    if existing and existing.get("lastUpdate"):
+        st.session_state.sharing = True
+    else:
+        st.session_state.sharing = False
 
 col1, col2 = st.columns([1, 5])
 with col1:
     if not st.session_state.sharing:
         if st.button("📡 Bắt đầu chia sẻ vị trí"):
+            db.child("officers").child(username).remove()
             st.session_state.sharing = True
             st.rerun()
     else:
@@ -342,7 +357,6 @@ if st.session_state.sharing:
     const officerName = "{name}";
     const officerRef = ref(database, 'officers/' + username);
 
-    // Xóa hoàn toàn khi mất kết nối
     onDisconnect(officerRef).remove();
 
     update(officerRef, {{
@@ -362,6 +376,7 @@ if st.session_state.sharing:
     function isValidVNCoordinate(lat, lng) {{
         if (typeof lat !== 'number' || typeof lng !== 'number') return false;
         if (lat === 0 && lng === 0) return false;
+        if (lat < 8 || lat > 24 || lng < 102 || lng > 110) return false;
         return true;
     }}
 
@@ -592,12 +607,12 @@ def cleanup_offline_officers():
         if not officers:
             return
         now = int(time.time() * 1000)
-        limit = 2 * 60 * 1000  # 2 phút
+        limit = 5 * 60 * 1000
         for uid, data in officers.items():
             last_update = data.get("lastUpdate")
             if last_update and now - int(last_update) > limit:
                 db.child("officers").child(uid).remove()
-                print(f"Đã xóa officer {uid} do không cập nhật vị trí")
+                print(f"Đã xóa officer {uid} do không cập nhật vị trí >5 phút")
     except Exception as e:
         print("Cleanup offline officers error:", e)
 
@@ -648,7 +663,7 @@ def detect_stationary_officers():
         if not officers:
             return []
         now = int(time.time() * 1000)
-        online_limit = 60 * 1000
+        online_limit = 5 * 60 * 1000
         threshold = 15 * 60 * 1000
         stationary = []
         for uid, data in officers.items():
@@ -699,7 +714,7 @@ with st.sidebar:
                             send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
             st.success("Đã gửi báo động!")
         else:
-            st.error("Bạn chưa chia sẻ vị trí hợp lệ")
+            st.error("Bạn chưa chia sẻ vị trí hợp lệ hoặc vị trí không xác định")
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
@@ -857,7 +872,7 @@ with st.spinner("🔄 Đang tải dữ liệu..."):
             result = db.child("officers").get().val()
             if result:
                 now = int(time.time() * 1000)
-                online_limit = 60 * 1000
+                online_limit = 5 * 60 * 1000
                 filtered = {}
                 for uid, data in result.items():
                     last_update = data.get("lastUpdate")
@@ -933,7 +948,7 @@ try:
     officers_old = db.child("officers").get().val()
     if officers_old:
         now = int(time.time() * 1000)
-        online_limit = 60 * 1000
+        online_limit = 5 * 60 * 1000
         for uid, data in officers_old.items():
             last_update = data.get("lastUpdate")
             if last_update and (now - int(last_update)) > online_limit:
@@ -958,7 +973,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML (VỚI ALERTS MỚI)
+# 17. MAP HTML HOÀN CHỈNH (ĐÃ FIX ALERT)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -998,7 +1013,6 @@ const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
 
-// Biến toàn cục
 let map = null;
 let officerMarkers = {{}};
 let alertMarkers = {{}};
@@ -1008,7 +1022,6 @@ let incidentMarkers = {{}};
 let trackPolylines = {{}};
 let trackListeners = {{}};
 let moveOrderLines = {{}};
-let zoomedToMe = false;
 let selectionMode = false;
 let selectedOfficerId = null;
 let selectedOfficerName = null;
@@ -1021,6 +1034,7 @@ let audioActivated = false;
 function isValidVNCoordinate(lat, lng) {{
     if (typeof lat !== 'number' || typeof lng !== 'number') return false;
     if (lat === 0 && lng === 0) return false;
+    if (lat < 8 || lat > 24 || lng < 102 || lng > 110) return false;
     return true;
 }}
 
@@ -1035,7 +1049,6 @@ function haversine(lat1, lng1, lat2, lng2) {{
     return R * c;
 }}
 
-// Khởi tạo audio
 function initAudio() {{
     if (alertSound) return;
     alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
@@ -1043,7 +1056,6 @@ function initAudio() {{
     alertSound.loop = false;
 }}
 
-// Dừng âm thanh
 function stopAlertSound() {{
     if (alertSound && !alertSound.paused) {{
         alertSound.pause();
@@ -1052,7 +1064,6 @@ function stopAlertSound() {{
     }}
 }}
 
-// Xóa marker báo động
 function removeAlertMarker(alertId) {{
     if (alertMarkers[alertId]) {{
         map.removeLayer(alertMarkers[alertId]);
@@ -1068,7 +1079,6 @@ function removeAlertMarker(alertId) {{
     }}
 }}
 
-// Tạo icon officer
 function createOfficerIcon(color) {{
     return L.divIcon({{
         className: '',
@@ -1082,7 +1092,6 @@ function getOfficerColor(uid) {{
     return userColors[uid] || '#0066cc';
 }}
 
-// Khởi tạo map
 function initMap() {{
     const savedCenter = sessionStorage.getItem('mapCenter');
     const savedZoom = sessionStorage.getItem('mapZoom');
@@ -1121,14 +1130,12 @@ function initMap() {{
     }}
 }}
 
-// NoSleep
 let noSleep = new NoSleep();
 document.addEventListener('click', function enableNoSleep() {{
     noSleep.enable();
     document.removeEventListener('click', enableNoSleep);
 }});
 
-// FCM
 if ('serviceWorker' in navigator && "{fcm_vapid_key}" !== "") {{
     navigator.serviceWorker.register('/firebase-messaging-sw.js')
         .then(registration => getToken(messaging, {{ vapidKey: "{fcm_vapid_key}" }}))
@@ -1141,11 +1148,9 @@ onMessage(messaging, payload => {{
     new Notification(payload.notification.title, {{ body: payload.notification.body }});
 }});
 
-// Khởi chạy
 initMap();
 initAudio();
 
-// Kích hoạt audio khi click
 document.addEventListener("click", () => {{
     if (!audioActivated && alertSound) {{
         alertSound.load();
@@ -1154,7 +1159,6 @@ document.addEventListener("click", () => {{
     }}
 }});
 
-// Stationary officers
 stationaryOfficers.forEach(officer => {{
     if (isValidVNCoordinate(officer.lat, officer.lng)) {{
         L.circleMarker([officer.lat, officer.lng], {{
@@ -1166,7 +1170,6 @@ stationaryOfficers.forEach(officer => {{
 
 const officersRef = ref(db, 'officers');
 
-// Xóa marker cũ trước khi tạo mới
 function removeOfficerMarkerIfExists(uid) {{
     if (officerMarkers[uid]) {{
         map.removeLayer(officerMarkers[uid]);
@@ -1226,7 +1229,6 @@ onChildRemoved(officersRef, (data) => {{
     }}
 }});
 
-// Online status
 const OFFLINE_TIMEOUT = 60000;
 function updateOnlineStatus() {{
     const now = Date.now();
@@ -1253,13 +1255,11 @@ setInterval(updateOnlineStatus, 30000);
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 
-// Lưu trạng thái alert đã phát (tránh phát lại khi reload)
 const playedAlerts = new Set(JSON.parse(sessionStorage.getItem("playedAlerts") || "[]"));
 function savePlayedAlerts() {{
     sessionStorage.setItem("playedAlerts", JSON.stringify([...playedAlerts]));
 }}
 
-// Nội dung popup
 function getAlertPopupContent(alert) {{
     let distanceText = "";
     if (officerMarkers[myUsername]) {{
@@ -1281,7 +1281,6 @@ function getAlertPopupContent(alert) {{
             ${{new Date(alert.timestamp).toLocaleString()}}`;
 }}
 
-// Icon báo động
 const alertIcon = L.divIcon({{
     className: '',
     html: '<div class="alert-marker"></div>',
@@ -1289,7 +1288,6 @@ const alertIcon = L.divIcon({{
     popupAnchor: [0, -12]
 }});
 
-// ===== NHẬN ALERT =====
 onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
@@ -1297,7 +1295,6 @@ onChildAdded(alertsRef, (data) => {{
     if (!alert.timestamp || alert.timestamp < oneDayAgo) return;
     if (!isValidVNCoordinate(alert.lat, alert.lng)) return;
 
-    // Tạo marker nếu chưa có
     if (!alertMarkers[id]) {{
         const marker = L.marker([alert.lat, alert.lng], {{ icon: alertIcon }})
             .addTo(map)
@@ -1306,14 +1303,9 @@ onChildAdded(alertsRef, (data) => {{
     }}
 
     const now = Date.now();
-
-    // ⛔ FIX QUAN TRỌNG: dùng username thay vì name
     const isMyAlert = (alert.created_by === myUsername);
-
-    // ⛔ FIX: tăng thời gian nhận alert lên 15s
     const isRecent = (now - alert.timestamp) < 15000;
 
-    // Phát âm thanh
     if (!isMyAlert && isRecent && !playedAlerts.has(id)) {{
         playedAlerts.add(id);
         savePlayedAlerts();
@@ -1325,12 +1317,10 @@ onChildAdded(alertsRef, (data) => {{
             console.log("⚠️ Click vào màn hình để bật âm thanh");
         }}
 
-        // Zoom nhẹ (tránh giật)
         if (!map._animatingZoom) {{
             map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
         }}
 
-        // Tự dừng âm thanh sau 15s
         setTimeout(() => {{
             if (alertSound && !alertSound.paused) {{
                 alertSound.pause();
@@ -1338,7 +1328,6 @@ onChildAdded(alertsRef, (data) => {{
             }}
         }}, 15000);
 
-        // ⛔ FIX: tăng timeout lên 20s
         alertTimeouts[id] = setTimeout(() => {{
             get(ref(db, 'alerts/' + id)).then((snapshot) => {{
                 const currentAlert = snapshot.val();
@@ -1351,7 +1340,6 @@ onChildAdded(alertsRef, (data) => {{
     }}
 }});
 
-// ===== UPDATE ALERT =====
 onChildChanged(alertsRef, (data) => {{
     const alert = data.val();
     const id = data.key;
@@ -1365,7 +1353,6 @@ onChildChanged(alertsRef, (data) => {{
     }}
 }});
 
-// ===== XÓA ALERT =====
 onChildRemoved(alertsRef, (data) => {{
     const id = data.key;
     removeAlertMarker(id);
@@ -1433,7 +1420,6 @@ onChildRemoved(incidentsRef, (data) => {{
     }}
 }});
 
-// GHI CHÚ BẰNG GIỮ 2 GIÂY
 if (userRole !== 'commander') {{
     let pressTimerMarker = null;
     map.on('touchstart', (e) => {{
@@ -1471,7 +1457,6 @@ map.on('contextmenu', (e) => {{
     }}
 }});
 
-// TRACKS
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1514,7 +1499,6 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// MOVE ORDERS
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
