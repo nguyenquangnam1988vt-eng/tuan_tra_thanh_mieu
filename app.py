@@ -971,9 +971,8 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 18. MAP HTML (giữ nguyên nội dung, chỉ thay tile layer nếu có key MapTiler)
+# 18. MAP HTML (ĐÃ SỬA LỖI JS)
 # ==============================
-# Nếu bạn có key MapTiler, thay đoạn L.tileLayer bên dưới. Ở đây giữ CARTO để tránh lỗi.
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/> 
@@ -1102,7 +1101,7 @@ if (!sessionStorage.getItem('audioActivated')) {{
 function stopAlert(alertId) {{
     if (alertTimeouts[alertId]) {{
         clearTimeout(alertTimeouts[alertId]);
-        delete alertTimeouts[alertId]);
+        delete alertTimeouts[alertId];
     }}
     if (Object.keys(alertTimeouts).length === 0 && !alertSound.paused) {{
         alertSound.pause();
