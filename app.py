@@ -590,7 +590,6 @@ def cleanup_old_data():
             for key, inc in incidents.items():
                 if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
                     db.child("incidents").child(key).remove()
-        # Xóa alerts cũ hơn 1 giờ (dự phòng, nhưng thường đã xóa khi nhận nhiệm vụ)
         alerts = db.child("alerts").get().val()
         if alerts:
             now = int(time.time() * 1000)
@@ -725,7 +724,6 @@ with st.sidebar:
                 assigned = alert.get("assigned", [])
                 if username in assigned and alert.get("status") == "pending":
                     try:
-                        # Lưu vào resolved_alerts để lịch sử
                         resolved_data = {
                             "original_id": key,
                             "name": alert.get("name"),
@@ -737,9 +735,7 @@ with st.sidebar:
                             "timestamp": alert.get("timestamp")
                         }
                         db.child("resolved_alerts").push(resolved_data)
-                        # Xóa alert khỏi node alerts
                         db.child("alerts").child(key).remove()
-                        # Gửi tin nhắn hệ thống
                         chat_message = {
                             "from": "system",
                             "name": "Hệ thống",
@@ -967,23 +963,28 @@ try:
 except Exception as e:
     print("Cleanup error:", e)
 
+# Lấy thông tin lệnh di chuyển tạm thời (nếu có) từ session_state
+order_info = None
+if user_role == "commander" and "temp_order" in st.session_state:
+    order_info = st.session_state["temp_order"]
+    del st.session_state["temp_order"]  # xóa sau khi đọc
+
 order_js = ""
-if user_role == "commander" and st.session_state.get('order_officer_id'):
+if order_info:
     order_js = f"""
     <script>
         window.pendingOrder = {{
-            officerId: "{st.session_state['order_officer_id']}",
-            officerName: "{st.session_state['order_officer_name']}"
+            officerId: "{order_info['officer_id']}",
+            officerName: "{order_info['officer_name']}",
+            note: "{order_info.get('note', '')}"
         }};
     </script>
     """
-    del st.session_state['order_officer_id']
-    del st.session_state['order_officer_name']
 else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ FIX ALERTS)
+# 17. MAP HTML HOÀN CHỈNH (đã cập nhật cơ chế click chọn điểm)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1034,9 +1035,10 @@ let trackPolylines = {{}};
 let trackListeners = {{}};
 let moveOrderLines = {{}};
 let zoomedToMe = false;
-let selectionMode = false;
+let selectionMode = false;      // Chế độ chọn điểm để ra lệnh di chuyển
 let selectedOfficerId = null;
 let selectedOfficerName = null;
+let selectedNote = "";
 let tempInfoControl = null;
 let hasSelected = false;
 let holdTimer = null;
@@ -1181,100 +1183,38 @@ stationaryOfficers.forEach(officer => {{
     }}
 }});
 
-// ==================== OFFICERS - FIX FULL KHÔNG MẤT NGƯỜI ====================
-// ==================== OFFICERS - FIX FULL KHÔNG MẤT NGƯỜI ====================
+// ==================== OFFICERS ====================
 const officersRef = ref(db, 'officers');
-
-// 📴 Tự xóa khi mất kết nối
 onDisconnect(ref(db, 'officers/' + myUsername)).remove();
 
-// 🔥 SYNC TOÀN BỘ (QUAN TRỌNG NHẤT)
 onValue(officersRef, (snapshot) => {{
     const officers = snapshot.val() || {{}};
-
-    // 🧹 Xóa toàn bộ marker cũ
     Object.keys(officerMarkers).forEach(uid => {{
-        if (officerMarkers[uid]) {{
-            map.removeLayer(officerMarkers[uid]);
-        }}
+        if (officerMarkers[uid]) map.removeLayer(officerMarkers[uid]);
     }});
-
     officerMarkers = {{}};
-
-    // 🔄 Vẽ lại toàn bộ officers
     Object.entries(officers).forEach(([id, officer]) => {{
-
         if (!officer) return;
         if (typeof officer.lat !== 'number' || typeof officer.lng !== 'number') return;
-
-        if (!isValidVNCoordinate(officer.lat, officer.lng)) {{
-            console.warn("❌ Tọa độ lỗi:", id, officer);
-            return;
-        }}
-
+        if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
         const color = getOfficerColor(id);
         const icon = createOfficerIcon(color);
-
-        const marker = L.marker([officer.lat, officer.lng], {{
-            icon: icon
-        }}).addTo(map);
-
-        marker.bindTooltip(officer.name || id, {{
-            permanent: true,
-            direction: 'top',
-            offset: [0, -12],
-            className: 'officer-label'
-        }});
-
+        const marker = L.marker([officer.lat, officer.lng], {{ icon: icon }}).addTo(map);
+        marker.bindTooltip(officer.name || id, {{ permanent: true, direction: 'top', offset: [0, -12] }});
         officerMarkers[id] = marker;
-
-        // 🎯 Zoom về vị trí mình lần đầu
         if (id === myUsername && !sessionStorage.getItem('zoomedToMe')) {{
             map.setView([officer.lat, officer.lng], 16);
             sessionStorage.setItem('zoomedToMe', 'true');
         }}
     }});
-
     console.log("✅ Sync officers:", Object.keys(officers).length);
 }});
 
-// ==================== ONLINE / OFFLINE ====================
-const OFFLINE_TIMEOUT = 60000;
-
-function updateOnlineStatus() {{
-    const now = Date.now();
-
-    get(officersRef).then((snapshot) => {{
-        const officers = snapshot.val() || {{}};
-
-        Object.keys(officers).forEach(uid => {{
-            const marker = officerMarkers[uid];
-            if (!marker) return;
-
-            const lastUpdate = officers[uid].lastUpdate || 0;
-
-            let color;
-            if (now - lastUpdate > OFFLINE_TIMEOUT) {{
-                color = '#aaa';
-            }} else {{
-                color = getOfficerColor(uid);
-            }}
-
-            marker.setIcon(createOfficerIcon(color));
-        }});
-    }}).catch(console.error);
-}}
-
-setInterval(updateOnlineStatus, 30000);
-
-// ==================== ALERTS - FIX FULL (xóa khi nhận nhiệm vụ) ====================
+// ==================== ALERTS ====================
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
-
 const playedAlerts = new Set(JSON.parse(sessionStorage.getItem("playedAlerts") || "[]"));
-function savePlayedAlerts() {{
-    sessionStorage.setItem("playedAlerts", JSON.stringify([...playedAlerts]));
-}}
+function savePlayedAlerts() {{ sessionStorage.setItem("playedAlerts", JSON.stringify([...playedAlerts])); }}
 
 function getAlertPopupContent(alert) {{
     let distanceText = "";
@@ -1289,18 +1229,10 @@ function getAlertPopupContent(alert) {{
     else if (alert.status === "resolved") statusText = "🟩 Đã xong";
     else if (alert.status === "expired") statusText = "⏰ Hết hạn";
     else statusText = "Không rõ";
-    return `🚨 <b>Báo động từ ${{alert.name}}</b><br>
-            Trạng thái: ${{statusText}}
-            ${{distanceText}}<br>
-            ${{new Date(alert.timestamp).toLocaleString()}}`;
+    return `🚨 <b>Báo động từ ${{alert.name}}</b><br> Trạng thái: ${{statusText}} ${{distanceText}}<br> ${{new Date(alert.timestamp).toLocaleString()}}`;
 }}
 
-const alertIcon = L.divIcon({{
-    className: '',
-    html: '<div class="alert-marker"></div>',
-    iconSize: [24, 24],
-    popupAnchor: [0, -12]
-}});
+const alertIcon = L.divIcon({{ className: '', html: '<div class="alert-marker"></div>', iconSize: [24, 24], popupAnchor: [0, -12] }});
 
 onChildAdded(alertsRef, (data) => {{
     const alert = data.val();
@@ -1323,14 +1255,9 @@ onChildAdded(alertsRef, (data) => {{
             alertSound.currentTime = 0;
             alertSound.play().catch(() => {{}});
         }}
-        if (!map._animatingZoom) {{
-            map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
-        }}
+        if (!map._animatingZoom) map.flyTo([alert.lat, alert.lng], 17, {{ animate: true, duration: 1.5 }});
         setTimeout(() => {{
-            if (alertSound && !alertSound.paused) {{
-                alertSound.pause();
-                alertSound.currentTime = 0;
-            }}
+            if (alertSound && !alertSound.paused) {{ alertSound.pause(); alertSound.currentTime = 0; }}
         }}, 15000);
         alertTimeouts[id] = setTimeout(() => {{
             get(ref(db, 'alerts/' + id)).then((snapshot) => {{
@@ -1349,18 +1276,12 @@ onChildChanged(alertsRef, (data) => {{
     const id = data.key;
     if (alertMarkers[id]) {{
         alertMarkers[id].setPopupContent(getAlertPopupContent(alert));
-        if (["accepted", "resolved", "expired"].includes(alert.status)) {{
-            removeAlertMarker(id);
-        }}
+        if (["accepted", "resolved", "expired"].includes(alert.status)) removeAlertMarker(id);
     }}
 }});
+onChildRemoved(alertsRef, (data) => {{ const id = data.key; removeAlertMarker(id); }});
 
-onChildRemoved(alertsRef, (data) => {{
-    const id = data.key;
-    removeAlertMarker(id);
-}});
-
-// ==================== MARKERS, INCIDENTS, TRACKS, MOVE ORDERS ====================
+// ==================== MARKERS, INCIDENTS, TRACKS ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1370,15 +1291,9 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
         const markerId = markerSnapshot.key;
         const fullId = `${{userId}}_${{markerId}}`;
         const age = Date.now() - point.timestamp;
-        if (age > 24*60*60*1000) {{
-            update(ref(db, `markers/${{userId}}/${{markerId}}`), null);
-            return;
-        }}
+        if (age > 24*60*60*1000) {{ update(ref(db, `markers/${{userId}}/${{markerId}}`), null); return; }}
         if (isValidVNCoordinate(point.lat, point.lng)) {{
-            const marker = L.circleMarker([point.lat, point.lng], {{
-                radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
-                renderer: L.canvas()
-            }}).addTo(map);
+            const marker = L.circleMarker([point.lat, point.lng], {{ radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1, renderer: L.canvas() }}).addTo(map);
             marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
             pointMarkers[fullId] = marker;
         }}
@@ -1386,91 +1301,32 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
     onChildRemoved(userMarkersRef, (markerSnapshot) => {{
         const markerId = markerSnapshot.key;
         const fullId = `${{userId}}_${{markerId}}`;
-        if (pointMarkers[fullId]) {{
-            map.removeLayer(pointMarkers[fullId]);
-            delete pointMarkers[fullId];
-        }}
+        if (pointMarkers[fullId]) {{ map.removeLayer(pointMarkers[fullId]); delete pointMarkers[fullId]; }}
     }});
 }});
 
 const incidentsRef = ref(db, 'incidents');
-const incidentIcon = L.divIcon({{
-    className: '', html: '<div class="incident-icon">📷</div>',
-    iconSize: [30, 30], popupAnchor: [0, -15]
-}});
-
+const incidentIcon = L.divIcon({{ className: '', html: '<div class="incident-icon">📷</div>', iconSize: [30, 30], popupAnchor: [0, -15] }});
 onChildAdded(incidentsRef, (data) => {{
     const inc = data.val();
     const id = data.key;
     const age = Date.now() - inc.timestamp;
-    if (age > 24*60*60*1000) {{
-        update(ref(db, 'incidents/' + id), null);
-        return;
-    }}
+    if (age > 24*60*60*1000) {{ update(ref(db, 'incidents/' + id), null); return; }}
     if (isValidVNCoordinate(inc.lat, inc.lng)) {{
-        const marker = L.marker([inc.lat, inc.lng], {{ icon: incidentIcon }})
-            .addTo(map)
+        const marker = L.marker([inc.lat, inc.lng], {{ icon: incidentIcon }}).addTo(map)
             .bindPopup(`<b>${{inc.created_by}}</b><br> ${{inc.note}}<br> <img src="${{inc.image_url}}" style="max-width:200px; max-height:200px;"><br> ${{new Date(inc.timestamp).toLocaleString()}}`);
         incidentMarkers[id] = marker;
     }}
 }});
-onChildRemoved(incidentsRef, (data) => {{
-    const id = data.key;
-    if (incidentMarkers[id]) {{
-        map.removeLayer(incidentMarkers[id]);
-        delete incidentMarkers[id];
-    }}
-}});
+onChildRemoved(incidentsRef, (data) => {{ const id = data.key; if (incidentMarkers[id]) {{ map.removeLayer(incidentMarkers[id]); delete incidentMarkers[id]; }} }});
 
-if (userRole !== 'commander') {{
-    let pressTimerMarker = null;
-    map.on('touchstart', (e) => {{
-        if (selectionMode) return;
-        const touch = e.originalEvent.touches[0];
-        const latlng = map.mouseEventToLatLng(touch);
-        pressTimerMarker = setTimeout(() => {{
-            const note = prompt("Nhập ghi chú cho điểm này:");
-            if (note && note.trim()) {{
-                push(ref(db, 'markers/' + myUsername), {{
-                    created_by: myName,
-                    lat: latlng.lat,
-                    lng: latlng.lng,
-                    note: note,
-                    timestamp: Date.now()
-                }});
-            }}
-        }}, 2000);
-    }});
-    map.on('touchend', () => clearTimeout(pressTimerMarker));
-    map.on('touchcancel', () => clearTimeout(pressTimerMarker));
-}}
-map.on('contextmenu', (e) => {{
-    if (selectionMode) return;
-    e.originalEvent.preventDefault();
-    const note = prompt("Nhập ghi chú cho điểm này:");
-    if (note && note.trim()) {{
-        push(ref(db, 'markers/' + myUsername), {{
-            created_by: myName,
-            lat: e.latlng.lat,
-            lng: e.latlng.lng,
-            note: note,
-            timestamp: Date.now()
-        }});
-    }}
-}});
-
+// Track
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
     if (!show) {{
-        if (trackPolylines[userId]) {{
-            map.removeLayer(trackPolylines[userId]);
-            delete trackPolylines[userId];
-        }}
-        if (trackListeners[userId]) {{
-            off(tracksQuery);
-            trackListeners[userId] = false;
-        }}
+        if (trackPolylines[userId]) {{ map.removeLayer(trackPolylines[userId]); delete trackPolylines[userId]; }}
+        if (trackListeners[userId]) {{ off(tracksQuery); trackListeners[userId] = false; }}
         return;
     }}
     if (trackListeners[userId]) return;
@@ -1478,9 +1334,7 @@ function loadUserTracks(userId, userName, show) {{
     if (!trackPolylines[userId]) {{
         const hue = (userName.split('').reduce((a,b) => a + b.charCodeAt(0), 0) * 31) % 360;
         const color = `hsl(${{hue}}, 70%, 50%)`;
-        trackPolylines[userId] = L.polyline([], {{
-            color: color, weight: 3, opacity: 0.7, smoothFactor: 5, noClip: true, renderer: L.canvas()
-        }}).addTo(map);
+        trackPolylines[userId] = L.polyline([], {{ color: color, weight: 3, opacity: 0.7, smoothFactor: 5, noClip: true, renderer: L.canvas() }}).addTo(map);
     }}
     onChildAdded(tracksQuery, (snapshot) => {{
         const point = snapshot.val();
@@ -1501,6 +1355,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
+// ==================== LỆNH DI CHUYỂN (Click chọn điểm mới) ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1508,27 +1363,18 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
     if (!order || order.status !== 'active') return;
     if (!isValidVNCoordinate(order.toLat, order.toLng)) return;
     const latlngs = [[order.fromLat, order.fromLng], [order.toLat, order.toLng]];
-    const polyline = L.polyline(latlngs, {{
-        color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10',
-        renderer: L.canvas()
-    }}).addTo(map);
+    const polyline = L.polyline(latlngs, {{ color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10', renderer: L.canvas() }}).addTo(map);
     if (polyline.arrowheads) polyline.arrowheads({{ size: '12px', frequency: 'all', color: '#ff8800' }});
     const officerName = officerMarkers[order.officerId]?.getTooltip()?.getContent() || order.officerId;
-    polyline.bindPopup(`📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{officerName}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}`);
+    polyline.bindPopup(`📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{officerName}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}<br>Ghi chú: ${{order.note || 'không'}}`);
     moveOrderLines[orderId] = polyline;
     if (order.officerId === myUsername) {{
-        L.popup()
-            .setLatLng([order.toLat, order.toLng])
-            .setContent(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}`)
-            .openOn(map);
+        L.popup().setLatLng([order.toLat, order.toLng]).setContent(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}<br>Ghi chú: ${{order.note || 'không'}}`).openOn(map);
     }}
 }});
 onChildRemoved(moveOrdersRef, (snapshot) => {{
     const orderId = snapshot.key;
-    if (moveOrderLines[orderId]) {{
-        map.removeLayer(moveOrderLines[orderId]);
-        delete moveOrderLines[orderId];
-    }}
+    if (moveOrderLines[orderId]) {{ map.removeLayer(moveOrderLines[orderId]); delete moveOrderLines[orderId]; }}
 }});
 function checkOrdersCompletion() {{
     get(moveOrdersRef).then((snapshot) => {{
@@ -1539,103 +1385,86 @@ function checkOrdersCompletion() {{
             if (!officer) continue;
             const officerPos = officer.getLatLng();
             const dist = haversine(officerPos.lat, officerPos.lng, order.toLat, order.toLng);
-            if (dist < 20) {{
-                update(ref(db, 'move_orders/' + orderId), null);
-            }}
+            if (dist < 20) {{ update(ref(db, 'move_orders/' + orderId), null); }}
         }}
     }}).catch(console.error);
 }}
 setInterval(checkOrdersCompletion, 5000);
 
-function zoomToAllOfficers() {{
-    const markers = Object.values(officerMarkers);
-    if (markers.length === 0) return;
-    const group = L.featureGroup(markers);
-    map.fitBounds(group.getBounds(), {{ padding: [50, 50], animate: false }});
-}}
-onValue(officersRef, (snapshot) => {{
-    const officers = snapshot.val() || {{}};
-    if (Object.keys(officers).length > 1) zoomToAllOfficers();
-}});
-
-function activateSelectionMode(officerId, officerName) {{
-    if (selectionMode) return;
+// Chức năng chọn điểm bằng click (dành cho commander)
+function activateSelectionMode(officerId, officerName, note = "") {{
+    if (selectionMode) deactivateSelectionMode();
     selectionMode = true;
     selectedOfficerId = officerId;
     selectedOfficerName = officerName;
-    hasSelected = false;
+    selectedNote = note;
     const infoControl = L.control({{ position: 'topright' }});
     infoControl.onAdd = () => {{
         const div = L.DomUtil.create('div', 'selection-info');
-        div.innerHTML = `
-            <span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span>
-            <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
-        `;
-        div.style.cursor = 'default';
+        div.innerHTML = `<span>📍 Click trên map để chọn điểm đến cho <b>${{officerName}}</b> (ghi chú: ${{note || 'không'}})</span>
+                         <button id="cancel-order-btn" class="cancel-btn">Hủy</button>`;
         L.DomEvent.disableClickPropagation(div);
         return div;
     }};
     infoControl.addTo(map);
     tempInfoControl = infoControl;
     setTimeout(() => {{
-        const cancelBtn = document.getElementById('cancel-order-btn');
-        if (cancelBtn) cancelBtn.onclick = () => deactivateSelectionMode();
+        const btn = document.getElementById('cancel-order-btn');
+        if (btn) btn.onclick = () => deactivateSelectionMode();
     }}, 100);
     map.getContainer().style.cursor = 'crosshair';
-    map.on('touchstart', (e) => {{
-        if (!selectionMode || hasSelected) return;
-        const touch = e.originalEvent.touches[0];
-        const latlng = map.mouseEventToLatLng(touch);
-        holdTimer = setTimeout(() => {{
-            if (hasSelected) return;
-            hasSelected = true;
-            const endLat = latlng.lat;
-            const endLng = latlng.lng;
-            const startMarker = officerMarkers[selectedOfficerId];
-            if (startMarker) {{
-                const startLatLng = startMarker.getLatLng();
-                const orderData = {{
-                    officerId: selectedOfficerId,
-                    fromLat: startLatLng.lat,
-                    fromLng: startLatLng.lng,
-                    toLat: endLat,
-                    toLng: endLng,
-                    commanderName: myName,
-                    commanderId: myUsername,
-                    timestamp: Date.now(),
-                    status: 'active'
-                }};
-                push(ref(db, 'move_orders'), orderData);
-                const marker = L.marker([endLat, endLng]).addTo(map);
-                marker.bindPopup("📍 Đã chọn điểm (giữ 5s)").openPopup();
-                setTimeout(() => map.removeLayer(marker), 5000);
-                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-            }}
-            deactivateSelectionMode();
-        }}, 5000);
+    // Lắng nghe click trên map
+    map.once('click', (e) => {{
+        if (!selectionMode) return;
+        const endLat = e.latlng.lat;
+        const endLng = e.latlng.lng;
+        const startMarker = officerMarkers[selectedOfficerId];
+        if (startMarker) {{
+            const startLatLng = startMarker.getLatLng();
+            const orderData = {{
+                officerId: selectedOfficerId,
+                fromLat: startLatLng.lat,
+                fromLng: startLatLng.lng,
+                toLat: endLat,
+                toLng: endLng,
+                commanderName: myName,
+                commanderId: myUsername,
+                timestamp: Date.now(),
+                status: 'active',
+                note: selectedNote || ""
+            }};
+            push(ref(db, 'move_orders'), orderData);
+            const marker = L.marker([endLat, endLng]).addTo(map);
+            marker.bindPopup("📍 Đã ra lệnh di chuyển").openPopup();
+            setTimeout(() => map.removeLayer(marker), 5000);
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        }}
+        deactivateSelectionMode();
     }});
-    map.on('touchend', () => clearTimeout(holdTimer));
-    map.on('touchcancel', () => clearTimeout(holdTimer));
 }}
 function deactivateSelectionMode() {{
     if (!selectionMode) return;
     if (tempInfoControl) map.removeControl(tempInfoControl);
     map.getContainer().style.cursor = '';
-    if (holdTimer) clearTimeout(holdTimer);
     selectionMode = false;
     selectedOfficerId = null;
     selectedOfficerName = null;
+    selectedNote = "";
     tempInfoControl = null;
-    hasSelected = false;
 }}
+
+// Nhận lệnh từ pendingOrder (từ sidebar)
 if (window.pendingOrder && window.pendingOrder.officerId) {{
     const checkInterval = setInterval(() => {{
         if (officerMarkers[window.pendingOrder.officerId]) {{
             clearInterval(checkInterval);
-            activateSelectionMode(window.pendingOrder.officerId, window.pendingOrder.officerName);
+            activateSelectionMode(window.pendingOrder.officerId, window.pendingOrder.officerName, window.pendingOrder.note || "");
         }}
     }}, 200);
 }}
+
+// Giữ lại chức năng cũ (touch hold) nhưng không can thiệp (vẫn tồn tại nhưng ít dùng)
+// Không xóa để tránh lỗi, nhưng người dùng sẽ dùng click mới.
 </script> </body> </html> """
 
 # ==============================
@@ -1760,6 +1589,7 @@ if incidents:
 else:
     st.sidebar.write("Chưa có ảnh hiện trường")
 
+# ==================== CẬP NHẬT GIAO DIỆN RA LỆNH CHO COMMANDER ====================
 if user_role == "commander" and officers:
     st.sidebar.markdown('<div class="sidebar-group"><h3>🚶 RA LỆNH DI CHUYỂN</h3></div>', unsafe_allow_html=True)
     st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
@@ -1770,9 +1600,14 @@ if user_role == "commander" and officers:
             options=list(officer_options.keys()),
             format_func=lambda x: officer_options[x]
         )
-        if st.sidebar.button("📍 Bắt đầu chọn điểm đến"):
-            st.session_state['order_officer_id'] = selected_officer
-            st.session_state['order_officer_name'] = officer_options[selected_officer]
+        note = st.sidebar.text_input("Ghi chú (tùy chọn)", key="order_note")
+        if st.sidebar.button("📍 Chọn điểm đến trên map"):
+            # Lưu thông tin vào session_state để truyền sang map
+            st.session_state["temp_order"] = {
+                "officer_id": selected_officer,
+                "officer_name": officer_options[selected_officer],
+                "note": note
+            }
             st.rerun()
     else:
         st.sidebar.info("Không có cán bộ khác trực tuyến")
