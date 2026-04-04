@@ -979,7 +979,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ THÊM DIALOG THÔNG MINH)
+# 17. MAP HTML HOÀN CHỈNH (ĐÃ SỬA XOÁ LỆNH DI CHUYỂN)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1000,7 +1000,6 @@ map_html = f"""
     .leaflet-marker-icon {{ transition: transform 0.2s ease; }}
     .leaflet-marker-icon:hover {{ transform: scale(1.3); }}
     * {{ -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }}
-    /* Dialog tùy chỉnh */
     .custom-dialog {{
         position: fixed;
         top: 50%;
@@ -1014,38 +1013,17 @@ map_html = f"""
         padding: 16px;
         font-family: sans-serif;
     }}
-    .custom-dialog h4 {{
-        margin-top: 0;
-        margin-bottom: 12px;
-    }}
-    .custom-dialog input, .custom-dialog select {{
-        width: 100%;
-        padding: 8px;
-        margin-bottom: 12px;
-        border: 1px solid #ccc;
-        border-radius: 6px;
-    }}
-    .custom-dialog button {{
-        padding: 8px 12px;
-        margin-right: 8px;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-    }}
-    .dialog-overlay {{
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0,0,0,0.5);
-        z-index: 1999;
-    }}
+    .custom-dialog h4 {{ margin-top: 0; margin-bottom: 12px; }}
+    .custom-dialog input, .custom-dialog select {{ width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 6px; }}
+    .custom-dialog button {{ padding: 8px 12px; margin-right: 8px; border: none; border-radius: 6px; cursor: pointer; }}
+    .dialog-overlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1999; }}
+    .delete-btn {{ background: #ff4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; margin-top: 5px; }}
+    .clear-orders-btn {{ position: absolute; top: 10px; right: 10px; background: #ff8800; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; z-index: 1000; font-size: 14px; font-weight: bold; }}
 </style>
 <body> {order_js} <div id="map"></div> 
 <script type="module"> 
 import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; 
-import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
+import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off, remove }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
 import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 
 const firebaseConfig = {json.dumps(firebase_config)};
@@ -1060,7 +1038,6 @@ const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
 
-// Biến toàn cục
 let map = null;
 let officerMarkers = {{}};
 let alertMarkers = {{}};
@@ -1098,7 +1075,6 @@ function haversine(lat1, lng1, lat2, lng2) {{
     return R * c;
 }}
 
-// Khởi tạo audio
 function initAudio() {{
     if (alertSound) return;
     alertSound = new Audio("data:audio/mp3;base64,{alert_sound_base64}");
@@ -1118,15 +1094,12 @@ function removeAlertMarker(alertId) {{
     if (alertMarkers[alertId]) {{
         map.removeLayer(alertMarkers[alertId]);
         delete alertMarkers[alertId];
-        console.log(`🗑️ Đã xóa marker báo động: ${{alertId}}`);
     }}
     if (alertTimeouts[alertId]) {{
         clearTimeout(alertTimeouts[alertId]);
         delete alertTimeouts[alertId];
     }}
-    if (Object.keys(alertMarkers).length === 0) {{
-        stopAlertSound();
-    }}
+    if (Object.keys(alertMarkers).length === 0) stopAlertSound();
 }}
 
 function createOfficerIcon(color) {{
@@ -1316,7 +1289,7 @@ onChildChanged(alertsRef, (data) => {{
 }});
 onChildRemoved(alertsRef, (data) => {{ const id = data.key; removeAlertMarker(id); }});
 
-// ==================== MARKERS, INCIDENTS, TRACKS ====================
+// ==================== MARKERS (có nút xoá) ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1326,27 +1299,57 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
         const markerId = markerSnapshot.key;
         const fullId = `${{userId}}_${{markerId}}`;
         const age = Date.now() - point.timestamp;
-        if (age > 24*60*60*1000) {{ update(ref(db, `markers/${{userId}}/${{markerId}}`), null); return; }}
+        if (age > 24*60*60*1000) {{ remove(ref(db, `markers/${{userId}}/${{markerId}}`)); return; }}
         if (isValidVNCoordinate(point.lat, point.lng)) {{
-            const marker = L.circleMarker([point.lat, point.lng], {{ radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1, renderer: L.canvas() }}).addTo(map);
-            marker.bindPopup(`<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`);
+            const marker = L.circleMarker([point.lat, point.lng], {{
+                radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
+                renderer: L.canvas()
+            }}).addTo(map);
+            let popupContent = `<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`;
+            const canDelete = (point.created_by === myName) || (userRole === 'commander') || (userRole === 'admin');
+            if (canDelete) {{
+                popupContent += `<br><button class="delete-btn" data-fullid="${{fullId}}" data-userid="${{userId}}" data-markerid="${{markerId}}">🗑️ Xoá điểm</button>`;
+            }}
+            marker.bindPopup(popupContent);
             pointMarkers[fullId] = marker;
+            marker.on('popupopen', () => {{
+                const btn = document.querySelector(`.delete-btn[data-fullid="${{fullId}}"]`);
+                if (btn) {{
+                    btn.onclick = async () => {{
+                        await remove(ref(db, `markers/${{userId}}/${{markerId}}`));
+                        const moveOrdersSnap = await get(ref(db, 'move_orders'));
+                        const orders = moveOrdersSnap.val() || {{}};
+                        for (const [orderId, order] of Object.entries(orders)) {{
+                            if (order.status !== 'active') continue;
+                            const dist = haversine(order.toLat, order.toLng, point.lat, point.lng);
+                            if (dist < 10) {{
+                                await remove(ref(db, 'move_orders/' + orderId));
+                            }}
+                        }}
+                        map.closePopup();
+                    }};
+                }}
+            }});
         }}
     }});
     onChildRemoved(userMarkersRef, (markerSnapshot) => {{
         const markerId = markerSnapshot.key;
         const fullId = `${{userId}}_${{markerId}}`;
-        if (pointMarkers[fullId]) {{ map.removeLayer(pointMarkers[fullId]); delete pointMarkers[fullId]; }}
+        if (pointMarkers[fullId]) {{
+            map.removeLayer(pointMarkers[fullId]);
+            delete pointMarkers[fullId];
+        }}
     }});
 }});
 
+// ==================== INCIDENTS ====================
 const incidentsRef = ref(db, 'incidents');
 const incidentIcon = L.divIcon({{ className: '', html: '<div class="incident-icon">📷</div>', iconSize: [30, 30], popupAnchor: [0, -15] }});
 onChildAdded(incidentsRef, (data) => {{
     const inc = data.val();
     const id = data.key;
     const age = Date.now() - inc.timestamp;
-    if (age > 24*60*60*1000) {{ update(ref(db, 'incidents/' + id), null); return; }}
+    if (age > 24*60*60*1000) {{ remove(ref(db, 'incidents/' + id)); return; }}
     if (isValidVNCoordinate(inc.lat, inc.lng)) {{
         const marker = L.marker([inc.lat, inc.lng], {{ icon: incidentIcon }}).addTo(map)
             .bindPopup(`<b>${{inc.created_by}}</b><br> ${{inc.note}}<br> <img src="${{inc.image_url}}" style="max-width:200px; max-height:200px;"><br> ${{new Date(inc.timestamp).toLocaleString()}}`);
@@ -1355,7 +1358,7 @@ onChildAdded(incidentsRef, (data) => {{
 }});
 onChildRemoved(incidentsRef, (data) => {{ const id = data.key; if (incidentMarkers[id]) {{ map.removeLayer(incidentMarkers[id]); delete incidentMarkers[id]; }} }});
 
-// Track
+// ==================== TRACKS ====================
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1390,7 +1393,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// ==================== LỆNH DI CHUYỂN ====================
+// ==================== MOVE ORDERS (có nút huỷ lệnh và nút xoá toàn bộ) ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1398,18 +1401,44 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
     if (!order || order.status !== 'active') return;
     if (!isValidVNCoordinate(order.toLat, order.toLng)) return;
     const latlngs = [[order.fromLat, order.fromLng], [order.toLat, order.toLng]];
-    const polyline = L.polyline(latlngs, {{ color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10', renderer: L.canvas() }}).addTo(map);
+    const polyline = L.polyline(latlngs, {{
+        color: '#ff8800', weight: 4, opacity: 0.8, dashArray: '5, 10',
+        renderer: L.canvas()
+    }}).addTo(map);
     if (polyline.arrowheads) polyline.arrowheads({{ size: '12px', frequency: 'all', color: '#ff8800' }});
     const officerName = officerMarkers[order.officerId]?.getTooltip()?.getContent() || order.officerId;
-    polyline.bindPopup(`📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{officerName}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}<br>Ghi chú: ${{order.note || 'không'}}`);
+    let popupContent = `📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{officerName}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}<br>Ghi chú: ${{order.note || 'không'}}`;
+    const canCancel = (order.commanderId === myUsername) || (userRole === 'commander') || (userRole === 'admin');
+    if (canCancel) {{
+        popupContent += `<br><button class="delete-btn" data-orderid="${{orderId}}">❌ Huỷ lệnh</button>`;
+    }}
+    polyline.bindPopup(popupContent);
     moveOrderLines[orderId] = polyline;
     if (order.officerId === myUsername) {{
         L.popup().setLatLng([order.toLat, order.toLng]).setContent(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}<br>Ghi chú: ${{order.note || 'không'}}`).openOn(map);
     }}
+    polyline.on('popupopen', () => {{
+        setTimeout(() => {{
+            const btn = document.querySelector(`.delete-btn[data-orderid="${{orderId}}"]`);
+            if (btn) {{
+                btn.onclick = async () => {{
+                    await remove(ref(db, 'move_orders/' + orderId));
+                    if (moveOrderLines[orderId]) {{
+                        map.removeLayer(moveOrderLines[orderId]);
+                        delete moveOrderLines[orderId];
+                    }}
+                    map.closePopup();
+                }};
+            }}
+        }}, 50);
+    }});
 }});
 onChildRemoved(moveOrdersRef, (snapshot) => {{
     const orderId = snapshot.key;
-    if (moveOrderLines[orderId]) {{ map.removeLayer(moveOrderLines[orderId]); delete moveOrderLines[orderId]; }}
+    if (moveOrderLines[orderId]) {{
+        map.removeLayer(moveOrderLines[orderId]);
+        delete moveOrderLines[orderId];
+    }}
 }});
 function checkOrdersCompletion() {{
     get(moveOrdersRef).then((snapshot) => {{
@@ -1420,7 +1449,9 @@ function checkOrdersCompletion() {{
             if (!officer) continue;
             const officerPos = officer.getLatLng();
             const dist = haversine(officerPos.lat, officerPos.lng, order.toLat, order.toLng);
-            if (dist < 20) {{ update(ref(db, 'move_orders/' + orderId), null); }}
+            if (dist < 20) {{
+                remove(ref(db, 'move_orders/' + orderId));
+            }}
         }}
     }}).catch(console.error);
 }}
@@ -1437,20 +1468,34 @@ onValue(officersRef, (snapshot) => {{
     if (Object.keys(officers).length > 1) zoomToAllOfficers();
 }});
 
-// ==================== CHỨC NĂNG ĐÁNH DẤU ĐIỂM THÔNG MINH ====================
-// Hàm hiển thị dialog tùy chỉnh
+// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN (chỉ commander/admin) ====================
+if (userRole === 'commander' || userRole === 'admin') {{
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ (lệnh di chuyển)';
+    clearBtn.className = 'clear-orders-btn';
+    clearBtn.onclick = async () => {{
+        if (confirm('Bạn có chắc muốn xoá TOÀN BỘ lệnh di chuyển đang hoạt động?')) {{
+            await remove(moveOrdersRef);
+            Object.keys(moveOrderLines).forEach(orderId => {{
+                if (moveOrderLines[orderId]) {{
+                    map.removeLayer(moveOrderLines[orderId]);
+                    delete moveOrderLines[orderId];
+                }}
+            }});
+            alert('Đã xoá tất cả lệnh di chuyển.');
+        }}
+    }};
+    document.body.appendChild(clearBtn);
+}}
+
+// ==================== DIALOG THÊM ĐIỂM ====================
 function showPointDialog(latlng) {{
-    // Xóa dialog cũ nếu có
     const oldOverlay = document.getElementById('dialog-overlay');
     if (oldOverlay) oldOverlay.remove();
-    
-    // Tạo overlay
     const overlay = document.createElement('div');
     overlay.id = 'dialog-overlay';
     overlay.className = 'dialog-overlay';
     document.body.appendChild(overlay);
-    
-    // Tạo dialog
     const dialog = document.createElement('div');
     dialog.className = 'custom-dialog';
     dialog.innerHTML = `
@@ -1465,8 +1510,6 @@ function showPointDialog(latlng) {{
         </div>
     `;
     document.body.appendChild(dialog);
-    
-    // Lấy danh sách cán bộ đang online (trừ chính mình)
     const officers = officerMarkers;
     const select = dialog.querySelector('#officer-select');
     for (const [uid, marker] of Object.entries(officers)) {{
@@ -1478,18 +1521,13 @@ function showPointDialog(latlng) {{
             select.appendChild(option);
         }}
     }}
-    
-    // Xử lý nút OK
     const okBtn = dialog.querySelector('#dialog-ok');
     const cancelBtn = dialog.querySelector('#dialog-cancel');
     const noteInput = dialog.querySelector('#point-note');
-    
     okBtn.onclick = () => {{
         const note = noteInput.value.trim();
         const selectedOfficerUid = select.value;
-        
         if (!selectedOfficerUid) {{
-            // Đánh dấu điểm đơn thuần (cần ghi chú)
             if (!note) {{
                 alert("Vui lòng nhập ghi chú cho điểm đánh dấu.");
                 return;
@@ -1502,7 +1540,6 @@ function showPointDialog(latlng) {{
                 timestamp: Date.now()
             }});
         }} else {{
-            // Ra lệnh di chuyển từ cán bộ được chọn đến điểm này
             const startMarker = officerMarkers[selectedOfficerUid];
             if (!startMarker) {{
                 alert("Không tìm thấy vị trí cán bộ này.");
@@ -1524,7 +1561,6 @@ function showPointDialog(latlng) {{
                 note: note || ""
             }};
             push(ref(db, 'move_orders'), orderData);
-            // Hiển thị marker tạm thời
             const tempMarker = L.marker([latlng.lat, latlng.lng]).addTo(map);
             tempMarker.bindPopup(`📍 Đã ra lệnh cho ${{select.options[select.selectedIndex].text}}`).openPopup();
             setTimeout(() => map.removeLayer(tempMarker), 5000);
@@ -1532,21 +1568,17 @@ function showPointDialog(latlng) {{
         dialog.remove();
         overlay.remove();
     }};
-    
     cancelBtn.onclick = () => {{
         dialog.remove();
         overlay.remove();
     }};
 }}
 
-// Sự kiện chuột phải (PC)
 map.on('contextmenu', (e) => {{
-    if (selectionMode) return; // Không can thiệp khi đang chọn điểm cho lệnh từ sidebar
+    if (selectionMode) return;
     e.originalEvent.preventDefault();
     showPointDialog(e.latlng);
 }});
-
-// Sự kiện touch & giữ (mobile)
 let touchTimer = null;
 map.on('touchstart', (e) => {{
     if (selectionMode) return;
@@ -1554,16 +1586,12 @@ map.on('touchstart', (e) => {{
     const latlng = map.mouseEventToLatLng(touch);
     touchTimer = setTimeout(() => {{
         showPointDialog(latlng);
-    }}, 800); // giữ 0.8 giây
+    }}, 800);
 }});
-map.on('touchend', () => {{
-    if (touchTimer) clearTimeout(touchTimer);
-}});
-map.on('touchcancel', () => {{
-    if (touchTimer) clearTimeout(touchTimer);
-}});
+map.on('touchend', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
+map.on('touchcancel', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 
-// Giữ nguyên chức năng ra lệnh từ sidebar (cho commander)
+// ==================== RA LỆNH TỪ SIDEBAR (giữ 5s) ====================
 function activateSelectionMode(officerId, officerName) {{
     if (selectionMode) return;
     selectionMode = true;
@@ -1573,11 +1601,7 @@ function activateSelectionMode(officerId, officerName) {{
     const infoControl = L.control({{ position: 'topright' }});
     infoControl.onAdd = () => {{
         const div = L.DomUtil.create('div', 'selection-info');
-        div.innerHTML = `
-            <span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span>
-            <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
-        `;
-        div.style.cursor = 'default';
+        div.innerHTML = `<span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span><button id="cancel-order-btn" class="cancel-btn">Hủy</button>`;
         L.DomEvent.disableClickPropagation(div);
         return div;
     }};
