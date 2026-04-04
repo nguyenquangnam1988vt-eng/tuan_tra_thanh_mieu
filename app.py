@@ -963,28 +963,23 @@ try:
 except Exception as e:
     print("Cleanup error:", e)
 
-# Lấy thông tin lệnh di chuyển tạm thời (nếu có) từ session_state
-order_info = None
-if user_role == "commander" and "temp_order" in st.session_state:
-    order_info = st.session_state["temp_order"]
-    del st.session_state["temp_order"]  # xóa sau khi đọc
-
 order_js = ""
-if order_info:
+if user_role == "commander" and st.session_state.get('order_officer_id'):
     order_js = f"""
     <script>
         window.pendingOrder = {{
-            officerId: "{order_info['officer_id']}",
-            officerName: "{order_info['officer_name']}",
-            note: "{order_info.get('note', '')}"
+            officerId: "{st.session_state['order_officer_id']}",
+            officerName: "{st.session_state['order_officer_name']}"
         }};
     </script>
     """
+    del st.session_state['order_officer_id']
+    del st.session_state['order_officer_name']
 else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (đã cập nhật cơ chế click chọn điểm)
+# 17. MAP HTML HOÀN CHỈNH (ĐÃ THÊM DIALOG THÔNG MINH)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1005,7 +1000,48 @@ map_html = f"""
     .leaflet-marker-icon {{ transition: transform 0.2s ease; }}
     .leaflet-marker-icon:hover {{ transform: scale(1.3); }}
     * {{ -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }}
-</style> 
+    /* Dialog tùy chỉnh */
+    .custom-dialog {{
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        z-index: 2000;
+        width: 280px;
+        padding: 16px;
+        font-family: sans-serif;
+    }}
+    .custom-dialog h4 {{
+        margin-top: 0;
+        margin-bottom: 12px;
+    }}
+    .custom-dialog input, .custom-dialog select {{
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 12px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+    }}
+    .custom-dialog button {{
+        padding: 8px 12px;
+        margin-right: 8px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+    }}
+    .dialog-overlay {{
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 1999;
+    }}
+</style>
 <body> {order_js} <div id="map"></div> 
 <script type="module"> 
 import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; 
@@ -1035,10 +1071,9 @@ let trackPolylines = {{}};
 let trackListeners = {{}};
 let moveOrderLines = {{}};
 let zoomedToMe = false;
-let selectionMode = false;      // Chế độ chọn điểm để ra lệnh di chuyển
+let selectionMode = false;
 let selectedOfficerId = null;
 let selectedOfficerName = null;
-let selectedNote = "";
 let tempInfoControl = null;
 let hasSelected = false;
 let holdTimer = null;
@@ -1355,7 +1390,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// ==================== LỆNH DI CHUYỂN (Click chọn điểm mới) ====================
+// ==================== LỆNH DI CHUYỂN ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1391,80 +1426,223 @@ function checkOrdersCompletion() {{
 }}
 setInterval(checkOrdersCompletion, 5000);
 
-// Chức năng chọn điểm bằng click (dành cho commander)
-function activateSelectionMode(officerId, officerName, note = "") {{
-    if (selectionMode) deactivateSelectionMode();
+function zoomToAllOfficers() {{
+    const markers = Object.values(officerMarkers);
+    if (markers.length === 0) return;
+    const group = L.featureGroup(markers);
+    map.fitBounds(group.getBounds(), {{ padding: [50, 50], animate: false }});
+}}
+onValue(officersRef, (snapshot) => {{
+    const officers = snapshot.val() || {{}};
+    if (Object.keys(officers).length > 1) zoomToAllOfficers();
+}});
+
+// ==================== CHỨC NĂNG ĐÁNH DẤU ĐIỂM THÔNG MINH ====================
+// Hàm hiển thị dialog tùy chỉnh
+function showPointDialog(latlng) {{
+    // Xóa dialog cũ nếu có
+    const oldOverlay = document.getElementById('dialog-overlay');
+    if (oldOverlay) oldOverlay.remove();
+    
+    // Tạo overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'dialog-overlay';
+    overlay.className = 'dialog-overlay';
+    document.body.appendChild(overlay);
+    
+    // Tạo dialog
+    const dialog = document.createElement('div');
+    dialog.className = 'custom-dialog';
+    dialog.innerHTML = `
+        <h4>📍 Tùy chọn tại điểm</h4>
+        <input type="text" id="point-note" placeholder="Ghi chú (bắt buộc nếu đánh dấu điểm)" />
+        <select id="officer-select">
+            <option value="">-- Chọn cán bộ để ra lệnh (không chọn = đánh dấu điểm) --</option>
+        </select>
+        <div style="margin-top: 12px;">
+            <button id="dialog-ok">Xác nhận</button>
+            <button id="dialog-cancel">Hủy</button>
+        </div>
+    `;
+    document.body.appendChild(dialog);
+    
+    // Lấy danh sách cán bộ đang online (trừ chính mình)
+    const officers = officerMarkers;
+    const select = dialog.querySelector('#officer-select');
+    for (const [uid, marker] of Object.entries(officers)) {{
+        if (uid !== myUsername) {{
+            const name = marker.getTooltip()?.getContent() || uid;
+            const option = document.createElement('option');
+            option.value = uid;
+            option.textContent = name;
+            select.appendChild(option);
+        }}
+    }}
+    
+    // Xử lý nút OK
+    const okBtn = dialog.querySelector('#dialog-ok');
+    const cancelBtn = dialog.querySelector('#dialog-cancel');
+    const noteInput = dialog.querySelector('#point-note');
+    
+    okBtn.onclick = () => {{
+        const note = noteInput.value.trim();
+        const selectedOfficerUid = select.value;
+        
+        if (!selectedOfficerUid) {{
+            // Đánh dấu điểm đơn thuần (cần ghi chú)
+            if (!note) {{
+                alert("Vui lòng nhập ghi chú cho điểm đánh dấu.");
+                return;
+            }}
+            push(ref(db, 'markers/' + myUsername), {{
+                created_by: myName,
+                lat: latlng.lat,
+                lng: latlng.lng,
+                note: note,
+                timestamp: Date.now()
+            }});
+        }} else {{
+            // Ra lệnh di chuyển từ cán bộ được chọn đến điểm này
+            const startMarker = officerMarkers[selectedOfficerUid];
+            if (!startMarker) {{
+                alert("Không tìm thấy vị trí cán bộ này.");
+                dialog.remove();
+                overlay.remove();
+                return;
+            }}
+            const startLatLng = startMarker.getLatLng();
+            const orderData = {{
+                officerId: selectedOfficerUid,
+                fromLat: startLatLng.lat,
+                fromLng: startLatLng.lng,
+                toLat: latlng.lat,
+                toLng: latlng.lng,
+                commanderName: myName,
+                commanderId: myUsername,
+                timestamp: Date.now(),
+                status: 'active',
+                note: note || ""
+            }};
+            push(ref(db, 'move_orders'), orderData);
+            // Hiển thị marker tạm thời
+            const tempMarker = L.marker([latlng.lat, latlng.lng]).addTo(map);
+            tempMarker.bindPopup(`📍 Đã ra lệnh cho ${{select.options[select.selectedIndex].text}}`).openPopup();
+            setTimeout(() => map.removeLayer(tempMarker), 5000);
+        }}
+        dialog.remove();
+        overlay.remove();
+    }};
+    
+    cancelBtn.onclick = () => {{
+        dialog.remove();
+        overlay.remove();
+    }};
+}}
+
+// Sự kiện chuột phải (PC)
+map.on('contextmenu', (e) => {{
+    if (selectionMode) return; // Không can thiệp khi đang chọn điểm cho lệnh từ sidebar
+    e.originalEvent.preventDefault();
+    showPointDialog(e.latlng);
+}});
+
+// Sự kiện touch & giữ (mobile)
+let touchTimer = null;
+map.on('touchstart', (e) => {{
+    if (selectionMode) return;
+    const touch = e.originalEvent.touches[0];
+    const latlng = map.mouseEventToLatLng(touch);
+    touchTimer = setTimeout(() => {{
+        showPointDialog(latlng);
+    }}, 800); // giữ 0.8 giây
+}});
+map.on('touchend', () => {{
+    if (touchTimer) clearTimeout(touchTimer);
+}});
+map.on('touchcancel', () => {{
+    if (touchTimer) clearTimeout(touchTimer);
+}});
+
+// Giữ nguyên chức năng ra lệnh từ sidebar (cho commander)
+function activateSelectionMode(officerId, officerName) {{
+    if (selectionMode) return;
     selectionMode = true;
     selectedOfficerId = officerId;
     selectedOfficerName = officerName;
-    selectedNote = note;
+    hasSelected = false;
     const infoControl = L.control({{ position: 'topright' }});
     infoControl.onAdd = () => {{
         const div = L.DomUtil.create('div', 'selection-info');
-        div.innerHTML = `<span>📍 Click trên map để chọn điểm đến cho <b>${{officerName}}</b> (ghi chú: ${{note || 'không'}})</span>
-                         <button id="cancel-order-btn" class="cancel-btn">Hủy</button>`;
+        div.innerHTML = `
+            <span>📍 Giữ 5 giây trên map để chọn điểm cho <b>${{officerName}}</b></span>
+            <button id="cancel-order-btn" class="cancel-btn">Hủy</button>
+        `;
+        div.style.cursor = 'default';
         L.DomEvent.disableClickPropagation(div);
         return div;
     }};
     infoControl.addTo(map);
     tempInfoControl = infoControl;
     setTimeout(() => {{
-        const btn = document.getElementById('cancel-order-btn');
-        if (btn) btn.onclick = () => deactivateSelectionMode();
+        const cancelBtn = document.getElementById('cancel-order-btn');
+        if (cancelBtn) cancelBtn.onclick = () => deactivateSelectionMode();
     }}, 100);
     map.getContainer().style.cursor = 'crosshair';
-    // Lắng nghe click trên map
-    map.once('click', (e) => {{
-        if (!selectionMode) return;
-        const endLat = e.latlng.lat;
-        const endLng = e.latlng.lng;
-        const startMarker = officerMarkers[selectedOfficerId];
-        if (startMarker) {{
-            const startLatLng = startMarker.getLatLng();
-            const orderData = {{
-                officerId: selectedOfficerId,
-                fromLat: startLatLng.lat,
-                fromLng: startLatLng.lng,
-                toLat: endLat,
-                toLng: endLng,
-                commanderName: myName,
-                commanderId: myUsername,
-                timestamp: Date.now(),
-                status: 'active',
-                note: selectedNote || ""
-            }};
-            push(ref(db, 'move_orders'), orderData);
-            const marker = L.marker([endLat, endLng]).addTo(map);
-            marker.bindPopup("📍 Đã ra lệnh di chuyển").openPopup();
-            setTimeout(() => map.removeLayer(marker), 5000);
-            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        }}
-        deactivateSelectionMode();
+    map.on('touchstart', (e) => {{
+        if (!selectionMode || hasSelected) return;
+        const touch = e.originalEvent.touches[0];
+        const latlng = map.mouseEventToLatLng(touch);
+        holdTimer = setTimeout(() => {{
+            if (hasSelected) return;
+            hasSelected = true;
+            const endLat = latlng.lat;
+            const endLng = latlng.lng;
+            const startMarker = officerMarkers[selectedOfficerId];
+            if (startMarker) {{
+                const startLatLng = startMarker.getLatLng();
+                const orderData = {{
+                    officerId: selectedOfficerId,
+                    fromLat: startLatLng.lat,
+                    fromLng: startLatLng.lng,
+                    toLat: endLat,
+                    toLng: endLng,
+                    commanderName: myName,
+                    commanderId: myUsername,
+                    timestamp: Date.now(),
+                    status: 'active',
+                    note: ""
+                }};
+                push(ref(db, 'move_orders'), orderData);
+                const marker = L.marker([endLat, endLng]).addTo(map);
+                marker.bindPopup("📍 Đã chọn điểm (giữ 5s)").openPopup();
+                setTimeout(() => map.removeLayer(marker), 5000);
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            }}
+            deactivateSelectionMode();
+        }}, 5000);
     }});
+    map.on('touchend', () => clearTimeout(holdTimer));
+    map.on('touchcancel', () => clearTimeout(holdTimer));
 }}
 function deactivateSelectionMode() {{
     if (!selectionMode) return;
     if (tempInfoControl) map.removeControl(tempInfoControl);
     map.getContainer().style.cursor = '';
+    if (holdTimer) clearTimeout(holdTimer);
     selectionMode = false;
     selectedOfficerId = null;
     selectedOfficerName = null;
-    selectedNote = "";
     tempInfoControl = null;
+    hasSelected = false;
 }}
-
-// Nhận lệnh từ pendingOrder (từ sidebar)
 if (window.pendingOrder && window.pendingOrder.officerId) {{
     const checkInterval = setInterval(() => {{
         if (officerMarkers[window.pendingOrder.officerId]) {{
             clearInterval(checkInterval);
-            activateSelectionMode(window.pendingOrder.officerId, window.pendingOrder.officerName, window.pendingOrder.note || "");
+            activateSelectionMode(window.pendingOrder.officerId, window.pendingOrder.officerName);
         }}
     }}, 200);
 }}
-
-// Giữ lại chức năng cũ (touch hold) nhưng không can thiệp (vẫn tồn tại nhưng ít dùng)
-// Không xóa để tránh lỗi, nhưng người dùng sẽ dùng click mới.
 </script> </body> </html> """
 
 # ==============================
@@ -1589,7 +1767,6 @@ if incidents:
 else:
     st.sidebar.write("Chưa có ảnh hiện trường")
 
-# ==================== CẬP NHẬT GIAO DIỆN RA LỆNH CHO COMMANDER ====================
 if user_role == "commander" and officers:
     st.sidebar.markdown('<div class="sidebar-group"><h3>🚶 RA LỆNH DI CHUYỂN</h3></div>', unsafe_allow_html=True)
     st.sidebar.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
@@ -1600,14 +1777,9 @@ if user_role == "commander" and officers:
             options=list(officer_options.keys()),
             format_func=lambda x: officer_options[x]
         )
-        note = st.sidebar.text_input("Ghi chú (tùy chọn)", key="order_note")
-        if st.sidebar.button("📍 Chọn điểm đến trên map"):
-            # Lưu thông tin vào session_state để truyền sang map
-            st.session_state["temp_order"] = {
-                "officer_id": selected_officer,
-                "officer_name": officer_options[selected_officer],
-                "note": note
-            }
+        if st.sidebar.button("📍 Bắt đầu chọn điểm đến"):
+            st.session_state['order_officer_id'] = selected_officer
+            st.session_state['order_officer_name'] = officer_options[selected_officer]
             st.rerun()
     else:
         st.sidebar.info("Không có cán bộ khác trực tuyến")
