@@ -234,6 +234,35 @@ section[data-testid="stSidebar"] .stTextArea textarea {
     margin-bottom: 12px;
     border: 1px solid #e5e7eb;
 }
+
+/* Drawing toolbar styles */
+.drawing-toolbar button {
+    cursor: pointer;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    margin: 2px;
+    padding: 4px 8px;
+}
+.drawing-toolbar button:hover {
+    opacity: 0.8;
+}
+.drawing-info {
+    background: white;
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.delete-drawing {
+    background: #ff4444;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-top: 5px;
+    cursor: pointer;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -979,7 +1008,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ SỬA XOÁ LỆNH DI CHUYỂN)
+# 17. MAP HTML HOÀN CHỈNH (CÓ TÍNH NĂNG VẼ)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1019,6 +1048,34 @@ map_html = f"""
     .dialog-overlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1999; }}
     .delete-btn {{ background: #ff4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; margin-top: 5px; }}
     .clear-orders-btn {{ position: absolute; top: 10px; right: 10px; background: #ff8800; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; z-index: 1000; font-size: 14px; font-weight: bold; }}
+    /* Drawing toolbar */
+    .drawing-toolbar button {{
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        font-size: 14px;
+        margin: 2px;
+        padding: 4px 8px;
+    }}
+    .drawing-toolbar button:hover {{
+        opacity: 0.8;
+    }}
+    .drawing-info {{
+        background: white;
+        padding: 5px 10px;
+        border-radius: 8px;
+        font-weight: bold;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }}
+    .delete-drawing {{
+        background: #ff4444;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        margin-top: 5px;
+        cursor: pointer;
+    }}
 </style>
 <body> {order_js} <div id="map"></div> 
 <script type="module"> 
@@ -1056,6 +1113,13 @@ let hasSelected = false;
 let holdTimer = null;
 let alertSound = null;
 let audioActivated = false;
+
+// Drawing variables
+let drawingMode = false;
+let tempPoints = [];
+let tempPolyline = null;
+let drawingColor = '#ff0000';
+let drawingWeight = 3;
 
 function isValidVNCoordinate(lat, lng) {{
     if (typeof lat !== 'number' || typeof lng !== 'number') return false;
@@ -1488,8 +1552,157 @@ if (userRole === 'commander' || userRole === 'admin') {{
     document.body.appendChild(clearBtn);
 }}
 
-// ==================== DIALOG THÊM ĐIỂM ====================
+// ==================== DRAWING TOOLBAR (chỉ commander/admin) ====================
+if (userRole === 'commander' || userRole === 'admin') {{
+    const toolbar = L.control({{ position: 'topright' }});
+    toolbar.onAdd = () => {{
+        const div = L.DomUtil.create('div', 'drawing-toolbar');
+        div.innerHTML = `
+            <div style="background:white; padding:8px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+                <button id="draw-toggle" style="margin:2px; padding:4px 8px;">✏️ Vẽ</button>
+                <input type="color" id="draw-color" value="${{drawingColor}}" style="width:30px; height:30px; margin:2px;">
+                <input type="range" id="draw-weight" min="2" max="10" step="1" value="${{drawingWeight}}" style="width:80px; margin:2px;">
+                <button id="clear-all-drawings" style="margin:2px; padding:4px 8px; background:#ff4444; color:white;">🗑️ Xóa tất cả nét vẽ</button>
+            </div>
+        `;
+        L.DomEvent.disableClickPropagation(div);
+        return div;
+    }};
+    toolbar.addTo(map);
+
+    // Xử lý sự kiện toolbar
+    document.getElementById('draw-toggle').addEventListener('click', () => {{
+        drawingMode = !drawingMode;
+        const btn = document.getElementById('draw-toggle');
+        if (drawingMode) {{
+            btn.style.background = '#4caf50';
+            btn.style.color = 'white';
+            startDrawing();
+        }} else {{
+            btn.style.background = '';
+            btn.style.color = '';
+            cancelDrawing();
+        }}
+    }});
+    document.getElementById('draw-color').addEventListener('change', (e) => {{
+        drawingColor = e.target.value;
+    }});
+    document.getElementById('draw-weight').addEventListener('change', (e) => {{
+        drawingWeight = parseInt(e.target.value);
+    }});
+    document.getElementById('clear-all-drawings').addEventListener('click', async () => {{
+        if (confirm('Xóa tất cả nét vẽ?')) {{
+            await remove(ref(db, 'drawings'));
+        }}
+    }});
+}}
+
+function startDrawing() {{
+    tempPoints = [];
+    if (tempPolyline) map.removeLayer(tempPolyline);
+    // Thông báo
+    const info = L.control({{ position: 'bottomleft' }});
+    info.onAdd = () => {{
+        const div = L.DomUtil.create('div', 'drawing-info');
+        div.innerHTML = '🎨 Đang vẽ: click chuột thêm điểm, double-click để kết thúc.';
+        return div;
+    }};
+    info.addTo(map);
+    window.drawingInfo = info;
+
+    function addPoint(e) {{
+        const {{ lat, lng }} = e.latlng;
+        tempPoints.push([lat, lng]);
+        if (tempPolyline) map.removeLayer(tempPolyline);
+        tempPolyline = L.polyline(tempPoints, {{ color: drawingColor, weight: drawingWeight, opacity: 0.8 }}).addTo(map);
+    }}
+    function finishDrawing() {{
+        if (tempPoints.length >= 2) {{
+            saveDrawing();
+        }}
+        deactivateDrawing();
+    }}
+    function deactivateDrawing() {{
+        map.off('click', addPoint);
+        map.off('dblclick', finishDrawing);
+        if (window.drawingInfo) map.removeControl(window.drawingInfo);
+        if (tempPolyline) map.removeLayer(tempPolyline);
+        tempPoints = [];
+        tempPolyline = null;
+        drawingMode = false;
+        const btn = document.getElementById('draw-toggle');
+        if (btn) {{
+            btn.style.background = '';
+            btn.style.color = '';
+        }}
+    }}
+    map.on('click', addPoint);
+    map.on('dblclick', finishDrawing);
+    window.deactivateDrawing = deactivateDrawing;
+}}
+
+function cancelDrawing() {{
+    if (window.deactivateDrawing) window.deactivateDrawing();
+}}
+
+function saveDrawing() {{
+    if (tempPoints.length < 2) return;
+    const drawing = {{
+        points: tempPoints.map(p => ({{ lat: p[0], lng: p[1] }})),
+        color: drawingColor,
+        weight: drawingWeight,
+        author: myName,
+        authorId: myUsername,
+        timestamp: Date.now()
+    }};
+    push(ref(db, 'drawings'), drawing);
+    cancelDrawing();
+}}
+
+// ==================== HIỂN THỊ CÁC NÉT VẼ TỪ FIREBASE ====================
+let drawingLayers = {{}};
+
+const drawingsRef = ref(db, 'drawings');
+onChildAdded(drawingsRef, (snapshot) => {{
+    const drawing = snapshot.val();
+    const id = snapshot.key;
+    if (!drawing || !drawing.points || drawing.points.length < 2) return;
+    const latlngs = drawing.points.map(p => [p.lat, p.lng]);
+    const polyline = L.polyline(latlngs, {{
+        color: drawing.color,
+        weight: drawing.weight,
+        opacity: 0.8,
+        interactive: true
+    }}).addTo(map);
+    let popupContent = `✏️ Vẽ bởi: ${{drawing.author}}<br>${{new Date(drawing.timestamp).toLocaleString()}}`;
+    const canDelete = (userRole === 'commander' || userRole === 'admin' || drawing.authorId === myUsername);
+    if (canDelete) {{
+        popupContent += `<br><button class="delete-drawing" data-id="${{id}}">🗑️ Xóa nét vẽ</button>`;
+    }}
+    polyline.bindPopup(popupContent);
+    drawingLayers[id] = polyline;
+
+    polyline.on('popupopen', () => {{
+        const btn = document.querySelector(`.delete-drawing[data-id="${{id}}"]`);
+        if (btn) {{
+            btn.onclick = async () => {{
+                await remove(ref(db, 'drawings/' + id));
+                map.closePopup();
+            }};
+        }}
+    }});
+}});
+onChildRemoved(drawingsRef, (snapshot) => {{
+    const id = snapshot.key;
+    if (drawingLayers[id]) {{
+        map.removeLayer(drawingLayers[id]);
+        delete drawingLayers[id];
+    }}
+}});
+
+// ==================== DIALOG THÊM ĐIỂM (có kiểm tra drawingMode) ====================
 function showPointDialog(latlng) {{
+    if (drawingMode) return;
     const oldOverlay = document.getElementById('dialog-overlay');
     if (oldOverlay) oldOverlay.remove();
     const overlay = document.createElement('div');
@@ -1575,13 +1788,13 @@ function showPointDialog(latlng) {{
 }}
 
 map.on('contextmenu', (e) => {{
-    if (selectionMode) return;
+    if (selectionMode || drawingMode) return;
     e.originalEvent.preventDefault();
     showPointDialog(e.latlng);
 }});
 let touchTimer = null;
 map.on('touchstart', (e) => {{
-    if (selectionMode) return;
+    if (selectionMode || drawingMode) return;
     const touch = e.originalEvent.touches[0];
     const latlng = map.mouseEventToLatLng(touch);
     touchTimer = setTimeout(() => {{
