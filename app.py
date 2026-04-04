@@ -304,12 +304,12 @@ for uid, data in config["credentials"]["usernames"].items():
     else:
         user_colors[uid] = data.get("color", "#0066cc")
 
-# Xóa dữ liệu vị trí cũ nếu quá hạn (5 phút)
+# Xóa dữ liệu vị trí cũ nếu quá hạn (20 phút)
 existing = db.child("officers").child(username).get().val()
 if existing:
     last_update = existing.get("lastUpdate")
     now_ms = int(time.time() * 1000)
-    if last_update and (now_ms - int(last_update)) > 5 * 60 * 1000:
+    if last_update and (now_ms - int(last_update)) > 20 * 60 * 1000:
         db.child("officers").child(username).remove()
         st.sidebar.info("Đã xóa dữ liệu vị trí cũ (quá hạn). Vui lòng bắt đầu chia sẻ lại.")
     else:
@@ -361,7 +361,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. GPS SCRIPT
+# 8. GPS SCRIPT (đã tối ưu)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -395,7 +395,6 @@ if st.session_state.sharing:
     let lastLng = null;
     let lastPoint = null;
     let prevPoint = null;
-    let lastBearing = null;
     let trackBuffer = [];
     let lastSendTime = 0;
     const SEND_INTERVAL = 5000;
@@ -433,7 +432,7 @@ if st.session_state.sharing:
         const b2 = getBearing(p2.lat, p2.lng, p3.lat, p3.lng);
         let angle = Math.abs(b1 - b2);
         if (angle > 180) angle = 360 - angle;
-        return angle >= 10;
+        return angle >= 20; // tăng lên 20 độ để giảm số điểm
     }}
 
     function stabilizeLine(lat,lng){{
@@ -498,21 +497,10 @@ if st.session_state.sharing:
             }}
             if(!shouldSend) return;
 
-            if(lastLat!==null){{
-                lat = lastLat*0.7 + lat*0.3;
-                lng = lastLng*0.7 + lng*0.3;
-            }}
-
-            if(lastPoint){{
-                const bearing = getBearing(lastPoint.lat, lastPoint.lng, lat, lng);
-                if(lastBearing!==null){{
-                    const diff = Math.abs(bearing - lastBearing);
-                    if(diff>60 && diff<300){{
-                        lat = lastPoint.lat*0.85 + lat*0.15;
-                        lng = lastPoint.lng*0.85 + lng*0.15;
-                    }}
-                }}
-                lastBearing = bearing;
+            // Smoothing chỉ khi accuracy kém (>30m) và di chuyển ít
+            if(lastLat !== null && accuracy > 30 && distance(lastLat, lastLng, lat, lng) < 10) {{
+                lat = lastLat * 0.85 + lat * 0.15;
+                lng = lastLng * 0.85 + lng * 0.15;
             }}
 
             const stabilized = stabilizeLine(lat,lng);
@@ -535,7 +523,7 @@ if st.session_state.sharing:
 
             if(lastPoint){{
                 const dist = distance(lastPoint.lat, lastPoint.lng, lat, lng);
-                if(dist>5 && dist<60){{
+                if(dist>8 && dist<60){{ // tăng threshold lên 8m
                     const midLat = (lastPoint.lat+lat)/2;
                     const midLng = (lastPoint.lng+lng)/2;
                     push(ref(database, 'tracks/'+username+'/points'), {{
@@ -609,7 +597,7 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 10. CLEANUP (5 phút)
+# 10. CLEANUP (20 phút cho offline, 24h cho incidents, 1h cho alerts)
 # ==============================
 def cleanup_old_data():
     try:
@@ -634,12 +622,12 @@ def cleanup_offline_officers():
         if not officers:
             return
         now = int(time.time() * 1000)
-        limit = 5 * 60 * 1000
+        limit = 20 * 60 * 1000  # 20 phút
         for uid, data in officers.items():
             last_update = data.get("lastUpdate")
             if last_update and now - int(last_update) > limit:
                 db.child("officers").child(uid).remove()
-                print(f"Đã xóa officer {uid} do không cập nhật vị trí >5 phút")
+                print(f"Đã xóa officer {uid} do không cập nhật vị trí >20 phút")
     except Exception as e:
         print("Cleanup offline officers error:", e)
 
@@ -667,9 +655,9 @@ def limit_tracks():
             return
         for uid, data in tracks.items():
             points = data.get("points", {})
-            if len(points) > 500:
+            if len(points) > 150:  # giảm từ 500 xuống 150
                 sorted_points = sorted(points.items(), key=lambda x: x[1].get("timestamp", 0))
-                for k, _ in sorted_points[:-500]:
+                for k, _ in sorted_points[:-150]:
                     db.child("tracks").child(uid).child("points").child(k).remove()
     except Exception as e:
         print("Limit tracks error:", e)
@@ -690,7 +678,7 @@ def detect_stationary_officers():
         if not officers:
             return []
         now = int(time.time() * 1000)
-        online_limit = 5 * 60 * 1000
+        online_limit = 20 * 60 * 1000
         threshold = 15 * 60 * 1000
         stationary = []
         for uid, data in officers.items():
@@ -774,8 +762,7 @@ with st.sidebar:
                         db.child("messages").push(chat_message)
                         st.success(f"✅ Đã nhận và xóa báo động từ {alert.get('name', 'cán bộ')}")
                         found = True
-                        time.sleep(0.5)
-                        st.rerun()
+                        # Không cần rerun ngay, để map tự refresh
                         break
                     except Exception as e:
                         st.error(f"Lỗi khi nhận nhiệm vụ: {e}")
@@ -898,16 +885,16 @@ with st.sidebar:
         st.session_state.show_tracks = {}
 
 # ==============================
-# 13. LOAD DỮ LIỆU
+# 13. LOAD DỮ LIỆU (tăng TTL lên 10s)
 # ==============================
 with st.spinner("🔄 Đang tải dữ liệu..."):
-    @st.cache_data(ttl=5)
+    @st.cache_data(ttl=10)
     def load_officers():
         try:
             result = db.child("officers").get().val()
             if result:
                 now = int(time.time() * 1000)
-                online_limit = 5 * 60 * 1000
+                online_limit = 20 * 60 * 1000  # 20 phút
                 filtered = {}
                 for uid, data in result.items():
                     last_update = data.get("lastUpdate")
@@ -949,9 +936,9 @@ with st.spinner("🔄 Đang tải dữ liệu..."):
             return {}
 
 # ==============================
-# 14. AUTO REFRESH
+# 14. AUTO REFRESH (tăng interval)
 # ==============================
-st_autorefresh(interval=10000, key="auto_refresh")
+st_autorefresh(interval=15000, key="auto_refresh")  # 15 giây thay vì 10
 
 # ==============================
 # 15. CHECKBOX TRACK
@@ -983,7 +970,7 @@ try:
     officers_old = db.child("officers").get().val()
     if officers_old:
         now = int(time.time() * 1000)
-        online_limit = 5 * 60 * 1000
+        online_limit = 20 * 60 * 1000
         for uid, data in officers_old.items():
             last_update = data.get("lastUpdate")
             if last_update and (now - int(last_update)) > online_limit:
@@ -1008,7 +995,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (CÓ TÍNH NĂNG VẼ)
+# 17. MAP HTML HOÀN CHỈNH (đã tối ưu diff update, drawing)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1048,7 +1035,6 @@ map_html = f"""
     .dialog-overlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1999; }}
     .delete-btn {{ background: #ff4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; margin-top: 5px; }}
     .clear-orders-btn {{ position: absolute; top: 10px; right: 10px; background: #ff8800; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; z-index: 1000; font-size: 14px; font-weight: bold; }}
-    /* Drawing toolbar */
     .drawing-toolbar button {{
         cursor: pointer;
         border: none;
@@ -1097,6 +1083,7 @@ const userColors = {user_colors_json};
 
 let map = null;
 let officerMarkers = {{}};
+let officerLastUpdate = {{}};
 let alertMarkers = {{}};
 let alertTimeouts = {{}};
 let pointMarkers = {{}};
@@ -1114,7 +1101,6 @@ let holdTimer = null;
 let alertSound = null;
 let audioActivated = false;
 
-// Drawing variables
 let drawingMode = false;
 let tempPoints = [];
 let tempPolyline = null;
@@ -1150,7 +1136,6 @@ function stopAlertSound() {{
     if (alertSound && !alertSound.paused) {{
         alertSound.pause();
         alertSound.currentTime = 0;
-        console.log("🔇 Đã dừng âm thanh báo động");
     }}
 }}
 
@@ -1175,7 +1160,13 @@ function createOfficerIcon(color) {{
     }});
 }}
 
-function getOfficerColor(uid) {{
+function getOfficerColorWithStatus(uid, lastUpdate) {{
+    if (uid === myUsername) return userColors[uid] || '#0066cc';
+    const now = Date.now();
+    const diff = now - lastUpdate;
+    if (diff > 5 * 60 * 1000 && diff < 20 * 60 * 1000) {{
+        return '#9ca3af'; // màu xám
+    }}
     return userColors[uid] || '#0066cc';
 }}
 
@@ -1242,7 +1233,6 @@ document.addEventListener("click", () => {{
     if (!audioActivated && alertSound) {{
         alertSound.load();
         audioActivated = true;
-        console.log("🔊 Audio đã được kích hoạt");
     }}
 }});
 
@@ -1255,31 +1245,58 @@ stationaryOfficers.forEach(officer => {{
     }}
 }});
 
-// ==================== OFFICERS ====================
+// ==================== OFFICERS (diff update) ====================
 const officersRef = ref(db, 'officers');
 onDisconnect(ref(db, 'officers/' + myUsername)).remove();
 
-onValue(officersRef, (snapshot) => {{
-    const officers = snapshot.val() || {{}};
-    Object.keys(officerMarkers).forEach(uid => {{
-        if (officerMarkers[uid]) map.removeLayer(officerMarkers[uid]);
-    }});
-    officerMarkers = {{}};
-    Object.entries(officers).forEach(([id, officer]) => {{
-        if (!officer) return;
-        if (typeof officer.lat !== 'number' || typeof officer.lng !== 'number') return;
-        if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
-        const color = getOfficerColor(id);
+onChildAdded(officersRef, (snapshot) => {{
+    const id = snapshot.key;
+    const officer = snapshot.val();
+    if (!officer) return;
+    if (typeof officer.lat !== 'number' || typeof officer.lng !== 'number') return;
+    if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
+    const lastUpdate = officer.lastUpdate || 0;
+    officerLastUpdate[id] = lastUpdate;
+    const color = getOfficerColorWithStatus(id, lastUpdate);
+    const icon = createOfficerIcon(color);
+    const marker = L.marker([officer.lat, officer.lng], {{ icon: icon }}).addTo(map);
+    marker.bindTooltip(officer.name || id, {{ permanent: true, direction: 'top', offset: [0, -12] }});
+    officerMarkers[id] = marker;
+    if (id === myUsername && !sessionStorage.getItem('zoomedToMe')) {{
+        map.setView([officer.lat, officer.lng], 16);
+        sessionStorage.setItem('zoomedToMe', 'true');
+    }}
+}});
+
+onChildChanged(officersRef, (snapshot) => {{
+    const id = snapshot.key;
+    const officer = snapshot.val();
+    if (!officer) return;
+    if (typeof officer.lat !== 'number' || typeof officer.lng !== 'number') return;
+    if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
+    const lastUpdate = officer.lastUpdate || 0;
+    officerLastUpdate[id] = lastUpdate;
+    const color = getOfficerColorWithStatus(id, lastUpdate);
+    const marker = officerMarkers[id];
+    if (marker) {{
+        marker.setLatLng([officer.lat, officer.lng]);
+        marker.setIcon(createOfficerIcon(color));
+        marker.setTooltipContent(officer.name || id);
+    }} else {{
         const icon = createOfficerIcon(color);
-        const marker = L.marker([officer.lat, officer.lng], {{ icon: icon }}).addTo(map);
-        marker.bindTooltip(officer.name || id, {{ permanent: true, direction: 'top', offset: [0, -12] }});
-        officerMarkers[id] = marker;
-        if (id === myUsername && !sessionStorage.getItem('zoomedToMe')) {{
-            map.setView([officer.lat, officer.lng], 16);
-            sessionStorage.setItem('zoomedToMe', 'true');
-        }}
-    }});
-    console.log("✅ Sync officers:", Object.keys(officers).length);
+        const newMarker = L.marker([officer.lat, officer.lng], {{ icon: icon }}).addTo(map);
+        newMarker.bindTooltip(officer.name || id, {{ permanent: true, direction: 'top', offset: [0, -12] }});
+        officerMarkers[id] = newMarker;
+    }}
+}});
+
+onChildRemoved(officersRef, (snapshot) => {{
+    const id = snapshot.key;
+    if (officerMarkers[id]) {{
+        map.removeLayer(officerMarkers[id]);
+        delete officerMarkers[id];
+        delete officerLastUpdate[id];
+    }}
 }});
 
 // ==================== ALERTS ====================
@@ -1353,7 +1370,7 @@ onChildChanged(alertsRef, (data) => {{
 }});
 onChildRemoved(alertsRef, (data) => {{ const id = data.key; removeAlertMarker(id); }});
 
-// ==================== MARKERS (có nút xoá) ====================
+// ==================== MARKERS ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1444,20 +1461,26 @@ function loadUserTracks(userId, userName, show) {{
             trackPolylines[userId].addLatLng([point.lat, point.lng]);
             if (trackPolylines[userId].getLatLngs().length > 30) {{
                 const latlngs = trackPolylines[userId].getLatLngs();
-                const smoothed = latlngs.filter((_, i) => i % 2 === 0);
-                trackPolylines[userId].setLatLngs(smoothed);
+                const simplified = [];
+                for (let i = 0; i < latlngs.length; i++) {{
+                    if (i === 0 || i === latlngs.length-1) {{
+                        simplified.push(latlngs[i]);
+                        continue;
+                    }}
+                    const prev = latlngs[i-1];
+                    const curr = latlngs[i];
+                    const next = latlngs[i+1];
+                    const angle = Math.abs(getBearing(prev.lat, prev.lng, curr.lat, curr.lng) - getBearing(curr.lat, curr.lng, next.lat, next.lng));
+                    if (angle > 15 && haversine(prev.lat, prev.lng, curr.lat, curr.lng) > 5) {{
+                        simplified.push(curr);
+                    }}
+                }}
+                trackPolylines[userId].setLatLngs(simplified);
             }}
         }}
     }});
 }}
-onValue(officersRef, (snapshot) => {{
-    const officers = snapshot.val() || {{}};
-    Object.keys(officers).forEach(uid => {{
-        loadUserTracks(uid, officers[uid].name, showTracks[uid] || false);
-    }});
-}});
-
-// ==================== MOVE ORDERS (có nút huỷ lệnh và nút xoá toàn bộ) ====================
+// ==================== MOVE ORDERS (có nút huỷ lệnh) ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1486,7 +1509,11 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
             const btn = document.querySelector(`.delete-btn[data-orderid="${{orderId}}"]`);
             if (btn) {{
                 btn.onclick = async () => {{
-                    await remove(ref(db, 'move_orders/' + orderId));
+                    const orderSnapshot = await get(ref(db, 'move_orders/' + orderId));
+                    const currentOrder = orderSnapshot.val();
+                    if (currentOrder && currentOrder.status === 'active') {{
+                        await remove(ref(db, 'move_orders/' + orderId));
+                    }}
                     if (moveOrderLines[orderId]) {{
                         map.removeLayer(moveOrderLines[orderId]);
                         delete moveOrderLines[orderId];
@@ -1527,12 +1554,9 @@ function zoomToAllOfficers() {{
     const group = L.featureGroup(markers);
     map.fitBounds(group.getBounds(), {{ padding: [50, 50], animate: false }});
 }}
-onValue(officersRef, (snapshot) => {{
-    const officers = snapshot.val() || {{}};
-    if (Object.keys(officers).length > 1) zoomToAllOfficers();
-}});
+setTimeout(zoomToAllOfficers, 2000);
 
-// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN (chỉ commander/admin) ====================
+// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const clearBtn = document.createElement('button');
     clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ (lệnh di chuyển)';
@@ -1552,7 +1576,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
     document.body.appendChild(clearBtn);
 }}
 
-// ==================== DRAWING TOOLBAR (chỉ commander/admin) ====================
+// ==================== DRAWING TOOLBAR ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const toolbar = L.control({{ position: 'topright' }});
     toolbar.onAdd = () => {{
@@ -1560,6 +1584,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
         div.innerHTML = `
             <div style="background:white; padding:8px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
                 <button id="draw-toggle" style="margin:2px; padding:4px 8px;">✏️ Vẽ</button>
+                <button id="draw-finish" style="margin:2px; padding:4px 8px; display:none; background:#4caf50; color:white;">✅ Hoàn tất</button>
                 <input type="color" id="draw-color" value="${{drawingColor}}" style="width:30px; height:30px; margin:2px;">
                 <input type="range" id="draw-weight" min="2" max="10" step="1" value="${{drawingWeight}}" style="width:80px; margin:2px;">
                 <button id="clear-all-drawings" style="margin:2px; padding:4px 8px; background:#ff4444; color:white;">🗑️ Xóa tất cả nét vẽ</button>
@@ -1570,19 +1595,31 @@ if (userRole === 'commander' || userRole === 'admin') {{
     }};
     toolbar.addTo(map);
 
-    // Xử lý sự kiện toolbar
-    document.getElementById('draw-toggle').addEventListener('click', () => {{
+    const drawToggle = document.getElementById('draw-toggle');
+    const drawFinish = document.getElementById('draw-finish');
+    drawToggle.addEventListener('click', () => {{
         drawingMode = !drawingMode;
-        const btn = document.getElementById('draw-toggle');
         if (drawingMode) {{
-            btn.style.background = '#4caf50';
-            btn.style.color = 'white';
+            drawToggle.style.background = '#4caf50';
+            drawToggle.style.color = 'white';
+            drawFinish.style.display = 'inline-block';
             startDrawing();
         }} else {{
-            btn.style.background = '';
-            btn.style.color = '';
+            drawToggle.style.background = '';
+            drawToggle.style.color = '';
+            drawFinish.style.display = 'none';
             cancelDrawing();
         }}
+    }});
+    drawFinish.addEventListener('click', () => {{
+        if (drawingMode && tempPoints.length >= 2) {{
+            saveDrawing();
+        }}
+        drawingMode = false;
+        drawToggle.style.background = '';
+        drawToggle.style.color = '';
+        drawFinish.style.display = 'none';
+        cancelDrawing();
     }});
     document.getElementById('draw-color').addEventListener('change', (e) => {{
         drawingColor = e.target.value;
@@ -1600,11 +1637,10 @@ if (userRole === 'commander' || userRole === 'admin') {{
 function startDrawing() {{
     tempPoints = [];
     if (tempPolyline) map.removeLayer(tempPolyline);
-    // Thông báo
     const info = L.control({{ position: 'bottomleft' }});
     info.onAdd = () => {{
         const div = L.DomUtil.create('div', 'drawing-info');
-        div.innerHTML = '🎨 Đang vẽ: click chuột thêm điểm, double-click để kết thúc.';
+        div.innerHTML = '🎨 Đang vẽ: chạm (tap) để thêm điểm, bấm "Hoàn tất" để kết thúc.';
         return div;
     }};
     info.addTo(map);
@@ -1616,28 +1652,32 @@ function startDrawing() {{
         if (tempPolyline) map.removeLayer(tempPolyline);
         tempPolyline = L.polyline(tempPoints, {{ color: drawingColor, weight: drawingWeight, opacity: 0.8 }}).addTo(map);
     }}
-    function finishDrawing() {{
-        if (tempPoints.length >= 2) {{
-            saveDrawing();
+    function addPointOnTouch(e) {{
+        if (e.originalEvent.touches && e.originalEvent.touches.length === 1) {{
+            const touch = e.originalEvent.touches[0];
+            const latlng = map.mouseEventToLatLng(touch);
+            addPoint({{ latlng }});
+            e.originalEvent.preventDefault();
         }}
-        deactivateDrawing();
     }}
     function deactivateDrawing() {{
         map.off('click', addPoint);
-        map.off('dblclick', finishDrawing);
+        map.off('touchstart', addPointOnTouch);
         if (window.drawingInfo) map.removeControl(window.drawingInfo);
         if (tempPolyline) map.removeLayer(tempPolyline);
         tempPoints = [];
         tempPolyline = null;
         drawingMode = false;
-        const btn = document.getElementById('draw-toggle');
-        if (btn) {{
-            btn.style.background = '';
-            btn.style.color = '';
+        const drawToggle = document.getElementById('draw-toggle');
+        if (drawToggle) {{
+            drawToggle.style.background = '';
+            drawToggle.style.color = '';
         }}
+        const drawFinish = document.getElementById('draw-finish');
+        if (drawFinish) drawFinish.style.display = 'none';
     }}
     map.on('click', addPoint);
-    map.on('dblclick', finishDrawing);
+    map.on('touchstart', addPointOnTouch);
     window.deactivateDrawing = deactivateDrawing;
 }}
 
@@ -1645,7 +1685,7 @@ function cancelDrawing() {{
     if (window.deactivateDrawing) window.deactivateDrawing();
 }}
 
-function saveDrawing() {{
+async function saveDrawing() {{
     if (tempPoints.length < 2) return;
     const drawing = {{
         points: tempPoints.map(p => ({{ lat: p[0], lng: p[1] }})),
@@ -1655,43 +1695,67 @@ function saveDrawing() {{
         authorId: myUsername,
         timestamp: Date.now()
     }};
-    push(ref(db, 'drawings'), drawing);
+    try {{
+        await push(ref(db, 'drawings'), drawing);
+        console.log("🟢 Đã lưu nét vẽ:", drawing);
+    }} catch (err) {{
+        console.error("❌ Lỗi lưu drawing:", err);
+    }}
     cancelDrawing();
 }}
 
-// ==================== HIỂN THỊ CÁC NÉT VẼ TỪ FIREBASE ====================
+// ==================== SYNC DRAWINGS ====================
 let drawingLayers = {{}};
-
 const drawingsRef = ref(db, 'drawings');
+
+document.addEventListener('click', async (e) => {{
+    if (e.target && e.target.classList.contains('delete-drawing')) {{
+        const id = e.target.getAttribute('data-id');
+        if (!id) return;
+        if (confirm("Xóa nét vẽ này?")) {{
+            await remove(ref(db, 'drawings/' + id));
+        }}
+    }}
+}});
+
+onValue(drawingsRef, (snapshot) => {{
+    const data = snapshot.val() || {{}};
+    Object.keys(drawingLayers).forEach(id => {{
+        map.removeLayer(drawingLayers[id]);
+    }});
+    drawingLayers = {{}};
+    Object.entries(data).forEach(([id, drawing]) => {{
+        if (!drawing || !drawing.points || drawing.points.length < 2) return;
+        const latlngs = drawing.points.map(p => [p.lat, p.lng]);
+        const polyline = L.polyline(latlngs, {{
+            color: drawing.color || '#ff0000',
+            weight: drawing.weight || 3,
+            opacity: 0.8
+        }}).addTo(map);
+        let popupContent = `✏️ Vẽ bởi: ${{drawing.author}}<br>${{new Date(drawing.timestamp).toLocaleString()}}`;
+        const canDelete = (userRole === 'commander' || userRole === 'admin' || drawing.authorId === myUsername);
+        if (canDelete) {{
+            popupContent += `<br><button class="delete-drawing" data-id="${{id}}">🗑️ Xóa nét vẽ</button>`;
+        }}
+        polyline.bindPopup(popupContent);
+        drawingLayers[id] = polyline;
+    }});
+}});
+
 onChildAdded(drawingsRef, (snapshot) => {{
     const drawing = snapshot.val();
     const id = snapshot.key;
     if (!drawing || !drawing.points || drawing.points.length < 2) return;
+    if (drawingLayers[id]) return;
     const latlngs = drawing.points.map(p => [p.lat, p.lng]);
     const polyline = L.polyline(latlngs, {{
         color: drawing.color,
         weight: drawing.weight,
-        opacity: 0.8,
-        interactive: true
+        opacity: 0.8
     }}).addTo(map);
-    let popupContent = `✏️ Vẽ bởi: ${{drawing.author}}<br>${{new Date(drawing.timestamp).toLocaleString()}}`;
-    const canDelete = (userRole === 'commander' || userRole === 'admin' || drawing.authorId === myUsername);
-    if (canDelete) {{
-        popupContent += `<br><button class="delete-drawing" data-id="${{id}}">🗑️ Xóa nét vẽ</button>`;
-    }}
-    polyline.bindPopup(popupContent);
     drawingLayers[id] = polyline;
-
-    polyline.on('popupopen', () => {{
-        const btn = document.querySelector(`.delete-drawing[data-id="${{id}}"]`);
-        if (btn) {{
-            btn.onclick = async () => {{
-                await remove(ref(db, 'drawings/' + id));
-                map.closePopup();
-            }};
-        }}
-    }});
 }});
+
 onChildRemoved(drawingsRef, (snapshot) => {{
     const id = snapshot.key;
     if (drawingLayers[id]) {{
@@ -1700,7 +1764,7 @@ onChildRemoved(drawingsRef, (snapshot) => {{
     }}
 }});
 
-// ==================== DIALOG THÊM ĐIỂM (có kiểm tra drawingMode) ====================
+// ==================== DIALOG THÊM ĐIỂM ====================
 function showPointDialog(latlng) {{
     if (drawingMode) return;
     const oldOverlay = document.getElementById('dialog-overlay');
@@ -1723,9 +1787,8 @@ function showPointDialog(latlng) {{
         </div>
     `;
     document.body.appendChild(dialog);
-    const officers = officerMarkers;
     const select = dialog.querySelector('#officer-select');
-    for (const [uid, marker] of Object.entries(officers)) {{
+    for (const [uid, marker] of Object.entries(officerMarkers)) {{
         if (uid !== myUsername) {{
             const name = marker.getTooltip()?.getContent() || uid;
             const option = document.createElement('option');
@@ -1804,7 +1867,7 @@ map.on('touchstart', (e) => {{
 map.on('touchend', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 map.on('touchcancel', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 
-// ==================== RA LỆNH TỪ SIDEBAR (giữ 5s) ====================
+// ==================== RA LỆNH TỪ SIDEBAR ====================
 function activateSelectionMode(officerId, officerName) {{
     if (selectionMode) return;
     selectionMode = true;
@@ -1891,7 +1954,7 @@ with tab1:
     st.components.v1.html(map_html, height=620)
 with tab2:
     st.subheader("💬 Chat nội bộ")
-    st_autorefresh(interval=3000, key="chat_refresh")
+    st_autorefresh(interval=7000, key="chat_refresh")  # tăng lên 7 giây
 
     def cleanup_old_messages():
         msgs = db.child("messages").get().val()
