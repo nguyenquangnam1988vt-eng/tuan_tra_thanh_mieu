@@ -13,7 +13,7 @@ import requests
 import math
 
 # ==============================
-# 0. HÀM TIỆN ÍCH (giữ nguyên)
+# 0. HÀM TIỆN ÍCH
 # ==============================
 def get_base64(file_path):
     try:
@@ -47,7 +47,7 @@ def is_valid_coordinate(lat, lng):
         return False
 
 # ==============================
-# 1. UPLOAD ẢNH (giữ nguyên)
+# 1. UPLOAD ẢNH
 # ==============================
 def upload_to_imgbb(image_file, api_key):
     try:
@@ -63,14 +63,14 @@ def upload_to_imgbb(image_file, api_key):
         return None, str(e)
 
 # ==============================
-# 2. CẤU HÌNH FIREBASE (giữ nguyên)
+# 2. CẤU HÌNH FIREBASE
 # ==============================
 firebase_config = dict(st.secrets["firebase"])
 firebase = pyrebase.initialize_app(firebase_config)
 db = firebase.database()
 
 # ==============================
-# 3. AUTHENTICATION (giữ nguyên)
+# 3. AUTHENTICATION
 # ==============================
 def load_credentials_from_firebase():
     try:
@@ -142,13 +142,98 @@ authenticator = stauth.Authenticate(
 )
 
 # ==============================
-# 4. CẤU HÌNH TRANG VÀ CSS (giữ nguyên)
+# 4. CẤU HÌNH TRANG VÀ CSS
 # ==============================
 st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
 st.markdown("""
 <style>
-... (giữ nguyên CSS cũ) ...
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+* {
+    font-family: 'Inter', sans-serif;
+}
+
+.stApp {
+    background: #f3f4f6;
+}
+
+section[data-testid="stSidebar"] {
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+}
+section[data-testid="stSidebar"] .stMarkdown,
+section[data-testid="stSidebar"] .stText,
+section[data-testid="stSidebar"] .stSelectbox label,
+section[data-testid="stSidebar"] .stCheckbox label {
+    color: #1f2937 !important;
+}
+section[data-testid="stSidebar"] .stButton button {
+    background: #2563eb;
+    color: white;
+    border-radius: 8px;
+    font-weight: 500;
+}
+section[data-testid="stSidebar"] .stButton button:hover {
+    background: #1d4ed8;
+}
+section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] {
+    background-color: #f9fafb;
+    border-color: #d1d5db;
+}
+section[data-testid="stSidebar"] .stTextInput input,
+section[data-testid="stSidebar"] .stTextArea textarea {
+    background-color: #f9fafb;
+    border-color: #d1d5db;
+    color: #1f2937;
+}
+
+.stButton button {
+    border-radius: 8px;
+    font-weight: 500;
+    border: none;
+    transition: 0.2s;
+}
+
+.dashboard-card {
+    background: white;
+    padding: 20px;
+    border-radius: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+}
+
+.custom-header {
+    margin-bottom: 1.5rem;
+}
+.custom-header h2 {
+    color: #1f2937;
+    margin-bottom: 0;
+    font-weight: 700;
+}
+.custom-header p {
+    color: #6b7280;
+    margin-top: 4px;
+}
+
+.sidebar-group {
+    margin-bottom: 24px;
+}
+.sidebar-group h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #6b7280;
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+.sidebar-card {
+    background: #f9fafb;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1px solid #e5e7eb;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -175,7 +260,7 @@ authenticator.logout("Đăng xuất", "sidebar")
 st.sidebar.success(f"Xin chào {name}")
 
 # ==============================
-# 5. THÔNG TIN USER (giữ nguyên)
+# 5. THÔNG TIN USER
 # ==============================
 user_role = config["credentials"]["usernames"][username].get("role", "officer")
 user_color = config["credentials"]["usernames"][username].get("color", "#0066cc")
@@ -209,7 +294,7 @@ db.child("users").child(username).set({
 })
 
 # ==============================
-# 6. CHIA SẺ VỊ TRÍ (giữ nguyên)
+# 6. CHIA SẺ VỊ TRÍ
 # ==============================
 if "sharing" not in st.session_state:
     existing = db.child("officers").child(username).get().val()
@@ -232,7 +317,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. TÌM CÁN BỘ GẦN NHẤT (giữ nguyên)
+# 7. TÌM CÁN BỘ GẦN NHẤT
 # ==============================
 def find_nearest_officers(lat, lng, limit=3):
     officers = db.child("officers").get().val()
@@ -247,30 +332,256 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. GPS SCRIPT (giữ nguyên)
+# 8. GPS SCRIPT (tối ưu)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
     <script type="module">
-    ... (giữ nguyên GPS script cũ) ...
+    import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import {{ 
+        getDatabase, 
+        ref, 
+        update, 
+        push, 
+        onDisconnect, 
+        serverTimestamp
+    }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+    const firebaseConfig = {json.dumps(firebase_config)};
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    const username = "{username}";
+    const officerName = "{name}";
+    const officerRef = ref(database, 'officers/' + username);
+
+    onDisconnect(officerRef).remove();
+
+    update(officerRef, {{
+        name: officerName,
+        lastUpdate: serverTimestamp()
+    }});
+
+    let lastLat = null;
+    let lastLng = null;
+    let lastSendTime = 0;
+    const SEND_INTERVAL = 5000;
+    const MIN_DISTANCE = 10;
+
+    function isValidVNCoordinate(lat, lng) {{
+        if (typeof lat !== 'number' || typeof lng !== 'number') return false;
+        if (lat === 0 && lng === 0) return false;
+        if (lat < 8 || lat > 24 || lng < 102 || lng > 110) return false;
+        return true;
+    }}
+
+    function distance(lat1, lon1, lat2, lon2) {{
+        const R = 6371000;
+        const dLat = (lat2-lat1) * Math.PI/180;
+        const dLon = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }}
+
+    let fallbackLat = null;
+    let fallbackLng = null;
+    fetch("https://ipapi.co/json/")
+        .then(res => res.json())
+        .then(data => {{
+            if (data.latitude && data.longitude && isValidVNCoordinate(data.latitude, data.longitude)) {{
+                fallbackLat = data.latitude;
+                fallbackLng = data.longitude;
+            }} else {{
+                fallbackLat = 21.0285;
+                fallbackLng = 105.8542;
+            }}
+        }})
+        .catch(err => {{
+            fallbackLat = 21.0285;
+            fallbackLng = 105.8542;
+        }});
+
+    if (navigator.geolocation) {{
+        navigator.geolocation.watchPosition(function(position){{
+            let accuracy = position.coords.accuracy;
+            if(accuracy > 100) return;
+
+            let lat = position.coords.latitude;
+            let lng = position.coords.longitude;
+
+            if (!isValidVNCoordinate(lat, lng)) {{
+                if (fallbackLat && fallbackLng) {{
+                    lat = fallbackLat;
+                    lng = fallbackLng;
+                }} else {{
+                    return;
+                }}
+            }}
+
+            if(lastLat !== null){{
+                const dist = distance(lastLat, lastLng, lat, lng);
+                if(dist < MIN_DISTANCE) return;
+            }}
+
+            const now = Date.now();
+            if (now - lastSendTime < SEND_INTERVAL) return;
+            lastSendTime = now;
+
+            update(officerRef, {{
+                name: officerName,
+                lat: lat,
+                lng: lng,
+                accuracy: accuracy,
+                lastUpdate: serverTimestamp()
+            }});
+
+            if(lastLat !== null && distance(lastLat, lastLng, lat, lng) > 15) {{
+                push(ref(database, 'tracks/'+username+'/points'), {{
+                    lat: lat,
+                    lng: lng,
+                    timestamp: serverTimestamp()
+                }});
+            }}
+            lastLat = lat;
+            lastLng = lng;
+        }}, function(error){{
+            console.log("GPS error:", error);
+            if (fallbackLat && fallbackLng) {{
+                update(officerRef, {{
+                    name: officerName,
+                    lat: fallbackLat,
+                    lng: fallbackLng,
+                    accuracy: 0,
+                    lastUpdate: serverTimestamp()
+                }});
+            }}
+        }}, {{
+            enableHighAccuracy: true,
+            maximumAge: 5000,
+            timeout: 10000
+        }});
+    }}
     </script>
     <div style="text-align: center; color: green;">📡 Đang chia sẻ vị trí...</div>
     """
     st.components.v1.html(gps_script, height=60)
 
 # ==============================
-# 9. FCM (giữ nguyên)
+# 9. FCM
 # ==============================
 def send_fcm_notification(title, body, target_token, server_key):
-    ... (giữ nguyên) ...
+    url = "https://fcm.googleapis.com/fcm/send"
+    headers = {
+        "Authorization": f"key={server_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "to": target_token,
+        "notification": {
+            "title": title,
+            "body": body,
+            "sound": "default"
+        }
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        return response.json()
+    except Exception as e:
+        print("FCM error:", e)
+        return None
 
 # ==============================
-# 10. CLEANUP (giữ nguyên)
+# 10. CLEANUP
 # ==============================
-def cleanup_old_data(): ...
-def cleanup_offline_officers(): ...
-def cleanup_old_tracks(): ...
-def limit_tracks(): ...
+def cleanup_old_data():
+    try:
+        incidents = db.child("incidents").get().val()
+        if incidents:
+            now = int(time.time() * 1000)
+            for key, inc in incidents.items():
+                if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
+                    db.child("incidents").child(key).remove()
+        
+        alerts = db.child("alerts").get().val()
+        if alerts:
+            now = int(time.time() * 1000)
+            for key, alert in alerts.items():
+                if now - alert.get("timestamp", 0) > 60 * 60 * 1000:
+                    db.child("alerts").child(key).remove()
+        
+        drawings = db.child("drawings").get().val()
+        if drawings:
+            now = int(time.time() * 1000)
+            for key, drawing in drawings.items():
+                if now - drawing.get("timestamp", 0) > 24 * 3600 * 1000:
+                    db.child("drawings").child(key).remove()
+        
+        markers = db.child("markers").get().val()
+        if markers:
+            now = int(time.time() * 1000)
+            for uid, user_markers in markers.items():
+                if user_markers and isinstance(user_markers, dict):
+                    for marker_key, marker in user_markers.items():
+                        if now - marker.get("timestamp", 0) > 24 * 3600 * 1000:
+                            db.child("markers").child(uid).child(marker_key).remove()
+        
+        move_orders = db.child("move_orders").get().val()
+        if move_orders:
+            now = int(time.time() * 1000)
+            for key, order in move_orders.items():
+                if now - order.get("timestamp", 0) > 30 * 60 * 1000:
+                    db.child("move_orders").child(key).remove()
+                    
+    except Exception as e:
+        print("Cleanup error:", e)
+
+def cleanup_offline_officers():
+    try:
+        officers = db.child("officers").get().val()
+        if not officers:
+            return
+        now = int(time.time() * 1000)
+        limit = 20 * 60 * 1000
+        for uid, data in officers.items():
+            last_update = data.get("lastUpdate")
+            if last_update and now - int(last_update) > limit:
+                db.child("officers").child(uid).remove()
+    except Exception as e:
+        print("Cleanup offline officers error:", e)
+
+def cleanup_old_tracks():
+    try:
+        tracks = db.child("tracks").get().val()
+        if not tracks:
+            return
+        now = int(time.time() * 1000)
+        limit = 24 * 3600 * 1000
+        for uid, data in tracks.items():
+            points = data.get("points")
+            if not points:
+                continue
+            for key, point in points.items():
+                if now - point.get("timestamp", 0) > limit:
+                    db.child("tracks").child(uid).child("points").child(key).remove()
+    except Exception as e:
+        print("Track cleanup error:", e)
+
+def limit_tracks():
+    try:
+        tracks = db.child("tracks").get().val()
+        if not tracks:
+            return
+        for uid, data in tracks.items():
+            points = data.get("points", {})
+            if len(points) > 150:
+                sorted_points = sorted(points.items(), key=lambda x: x[1].get("timestamp", 0))
+                for k, _ in sorted_points[:-150]:
+                    db.child("tracks").child(uid).child("points").child(k).remove()
+    except Exception as e:
+        print("Limit tracks error:", e)
 
 if "last_cleanup" not in st.session_state or time.time() - st.session_state.last_cleanup > 60:
     cleanup_old_data()
@@ -280,24 +591,213 @@ if "last_cleanup" not in st.session_state or time.time() - st.session_state.last
     st.session_state.last_cleanup = time.time()
 
 # ==============================
-# 11. STATIONARY OFFICERS (giữ nguyên)
+# 11. STATIONARY OFFICERS
 # ==============================
-def detect_stationary_officers(): ...
+def detect_stationary_officers():
+    try:
+        officers = db.child("officers").get().val()
+        if not officers:
+            return []
+        now = int(time.time() * 1000)
+        online_limit = 20 * 60 * 1000
+        threshold = 15 * 60 * 1000
+        stationary = []
+        for uid, data in officers.items():
+            last = data.get("lastUpdate")
+            if last and (now - int(last)) < online_limit and is_valid_coordinate(data.get("lat"), data.get("lng")):
+                if (now - int(last)) > threshold:
+                    stationary.append({
+                        "uid": uid,
+                        "name": data.get("name"),
+                        "lat": data["lat"],
+                        "lng": data["lng"],
+                        "lastUpdate": last
+                    })
+        return stationary
+    except Exception as e:
+        print("Stationary detection error:", e)
+        return []
 
 # ==============================
-# 12. SIDEBAR (giữ nguyên)
+# 12. SIDEBAR (CÁC CHỨC NĂNG)
 # ==============================
 st.sidebar.markdown('<div class="sidebar-group"><h3>🚨 ĐIỀU HÀNH</h3></div>', unsafe_allow_html=True)
 with st.sidebar:
-    ... (giữ nguyên) ...
+    st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
+    if st.button("🚨 Gửi báo động", key="alert_btn"):
+        user_data = db.child("officers").child(username).get().val()
+        if user_data and is_valid_coordinate(user_data.get("lat"), user_data.get("lng")):
+            lat = user_data["lat"]
+            lng = user_data["lng"]
+            nearest = find_nearest_officers(lat, lng)
+            alert_data = {
+                "name": name,
+                "lat": lat,
+                "lng": lng,
+                "assigned": nearest,
+                "status": "pending",
+                "timestamp": int(time.time() * 1000),
+                "created_by": username
+            }
+            db.child("alerts").push(alert_data)
+            server_key = st.secrets.get("fcm", {}).get("server_key", "")
+            if server_key:
+                tokens = db.child("fcm_tokens").get().val() or {}
+                for uid in nearest:
+                    if uid != username and uid in tokens:
+                        token = tokens[uid].get("token") if isinstance(tokens[uid], dict) else tokens[uid]
+                        if token:
+                            send_fcm_notification("🚨 BÁO ĐỘNG", f"Báo động từ {name}", token, server_key)
+            st.success("Đã gửi báo động!")
+        else:
+            st.error("Bạn chưa chia sẻ vị trí hợp lệ hoặc vị trí không xác định")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
+    if st.button("✅ Nhận nhiệm vụ gần nhất", key="accept_mission"):
+        alerts = db.child("alerts").get().val()
+        if alerts:
+            found = False
+            for key, alert in alerts.items():
+                assigned = alert.get("assigned", [])
+                if username in assigned and alert.get("status") == "pending":
+                    try:
+                        resolved_data = {
+                            "original_id": key,
+                            "name": alert.get("name"),
+                            "lat": alert.get("lat"),
+                            "lng": alert.get("lng"),
+                            "assigned": assigned,
+                            "accepted_by": name,
+                            "accepted_at": int(time.time() * 1000),
+                            "timestamp": alert.get("timestamp")
+                        }
+                        db.child("resolved_alerts").push(resolved_data)
+                        db.child("alerts").child(key).remove()
+                        chat_message = {
+                            "from": "system",
+                            "name": "Hệ thống",
+                            "message": f"✅ {name} đã nhận và xử lý báo động từ {alert.get('name', 'cán bộ')}",
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        db.child("messages").push(chat_message)
+                        st.success(f"✅ Đã nhận và xóa báo động từ {alert.get('name', 'cán bộ')}")
+                        found = True
+                        break
+                    except Exception as e:
+                        st.error(f"Lỗi khi nhận nhiệm vụ: {e}")
+            if not found:
+                st.info("Không có nhiệm vụ nào đang chờ xử lý cho bạn")
+        else:
+            st.info("Không có báo động nào")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 st.sidebar.markdown('<div class="sidebar-group"><h3>📍 TÁC VỤ CÁ NHÂN</h3></div>', unsafe_allow_html=True)
 with st.sidebar:
-    ... (giữ nguyên) ...
+    with st.expander("📍 Đánh dấu điểm"):
+        note = st.text_area("Ghi chú")
+        if st.button("Thêm điểm tại vị trí hiện tại"):
+            current = db.child("officers").child(username).get().val()
+            if current and is_valid_coordinate(current.get("lat"), current.get("lng")) and note.strip():
+                marker_data = {
+                    "created_by": name,
+                    "lat": current["lat"],
+                    "lng": current["lng"],
+                    "note": note,
+                    "timestamp": int(time.time() * 1000),
+                }
+                db.child("markers").child(username).push(marker_data)
+                st.success("Đã thêm điểm")
+            else:
+                st.warning("Chưa chia sẻ vị trí hợp lệ hoặc ghi chú trống")
+
+    with st.expander("📸 Chụp ảnh hiện trường"):
+        uploaded_file = st.file_uploader("Chọn ảnh", type=['jpg', 'jpeg', 'png'])
+        note_photo = st.text_input("Ghi chú (tùy chọn)")
+        if st.button("📤 Gửi ảnh"):
+            if not st.session_state.sharing:
+                st.warning("Bạn cần bật chia sẻ vị trí trước")
+            elif uploaded_file is None:
+                st.warning("Vui lòng chọn ảnh")
+            else:
+                current = db.child("officers").child(username).get().val()
+                if current and is_valid_coordinate(current.get("lat"), current.get("lng")):
+                    imgbb_api_key = st.secrets["imgbb"]["api_key"]
+                    image_url, error = upload_to_imgbb(uploaded_file, imgbb_api_key)
+                    if error:
+                        st.error(f"Lỗi upload: {error}")
+                    else:
+                        incident_data = {
+                            "created_by": name,
+                            "lat": current["lat"],
+                            "lng": current["lng"],
+                            "note": note_photo,
+                            "image_url": image_url,
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        db.child("incidents").push(incident_data)
+                        st.success("Đã gửi ảnh hiện trường!")
+                else:
+                    st.error("Không có vị trí hợp lệ")
 
 if user_role in ["commander", "admin"]:
     st.sidebar.markdown('<div class="sidebar-group"><h3>⚙️ HỆ THỐNG</h3></div>', unsafe_allow_html=True)
-    ... (giữ nguyên) ...
+    if user_role == "commander":
+        with st.sidebar:
+            st.markdown('<div class="sidebar-card">', unsafe_allow_html=True)
+            if st.button("🗑️ Xóa ghi chú (toàn bộ)", key="delete_all_markers"):
+                try:
+                    db.child("markers").remove()
+                    st.success("Đã xóa toàn bộ ghi chú!")
+                except Exception as e:
+                    st.error(f"Lỗi xóa: {e}")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    if user_role == "admin":
+        with st.sidebar:
+            with st.expander("👤 Quản lý tài khoản"):
+                with st.form("add_user_form"):
+                    new_username = st.text_input("Tên đăng nhập")
+                    new_email = st.text_input("Email")
+                    new_name = st.text_input("Tên hiển thị")
+                    new_password = st.text_input("Mật khẩu", type="password")
+                    new_role = st.selectbox("Vai trò", ["admin", "commander", "officer"])
+                    new_color = st.color_picker("Màu sắc", "#0066cc")
+                    if st.form_submit_button("Tạo tài khoản"):
+                        if not new_username or not new_name or not new_password:
+                            st.error("Vui lòng nhập đầy đủ")
+                        elif new_username in config["credentials"]["usernames"]:
+                            st.error("Tên đăng nhập đã tồn tại")
+                        else:
+                            hashed = Hasher([new_password]).generate()[0]
+                            config["credentials"]["usernames"][new_username] = {
+                                "email": new_email,
+                                "name": new_name,
+                                "password": hashed,
+                                "role": new_role,
+                                "color": new_color
+                            }
+                            if save_credentials_to_firebase(config["credentials"]):
+                                st.success(f"Đã thêm user {new_username}")
+                                st.rerun()
+                            else:
+                                st.error("Lỗi lưu dữ liệu")
+                with st.form("delete_user_form"):
+                    users = list(config["credentials"]["usernames"].keys())
+                    if users:
+                        user_to_delete = st.selectbox("Chọn user để xóa", users)
+                        if st.form_submit_button("Xóa user"):
+                            if user_to_delete == username:
+                                st.error("Không thể xóa chính mình")
+                            else:
+                                del config["credentials"]["usernames"][user_to_delete]
+                                if save_credentials_to_firebase(config["credentials"]):
+                                    st.success(f"Đã xóa user {user_to_delete}")
+                                    st.rerun()
+                                else:
+                                    st.error("Lỗi lưu dữ liệu")
+                    else:
+                        st.info("Không có user nào")
 
 st.sidebar.markdown('<div class="sidebar-group"><h3>🗺️ LỊCH SỬ DI CHUYỂN</h3></div>', unsafe_allow_html=True)
 with st.sidebar:
@@ -305,19 +805,57 @@ with st.sidebar:
         st.session_state.show_tracks = {}
 
 # ==============================
-# 13. LOAD DỮ LIỆU VỚI CACHE (giữ nguyên)
+# 13. LOAD DỮ LIỆU VỚI CACHE
 # ==============================
 @st.cache_data(ttl=10)
-def load_officers_cached(): ...
-def load_all_markers(): ...
-def load_incidents(): ...
+def load_officers_cached():
+    try:
+        result = db.child("officers").get().val()
+        if result:
+            now = int(time.time() * 1000)
+            online_limit = 20 * 60 * 1000
+            filtered = {}
+            for uid, data in result.items():
+                last_update = data.get("lastUpdate")
+                if last_update and (now - int(last_update)) < online_limit:
+                    if is_valid_coordinate(data.get("lat"), data.get("lng")):
+                        filtered[uid] = data
+            return filtered
+        return {}
+    except Exception as e:
+        st.error(f"Lỗi Firebase: {e}")
+        return {}
+
+def load_all_markers():
+    try:
+        all_markers = db.child("markers").get().val()
+        markers_dict = {}
+        if all_markers:
+            for uid, user_markers in all_markers.items():
+                if user_markers and isinstance(user_markers, dict):
+                    for key, marker in user_markers.items():
+                        if isinstance(marker, dict) and marker.get("timestamp") and is_valid_coordinate(marker.get("lat"), marker.get("lng")):
+                            markers_dict[key] = marker
+        return markers_dict
+    except Exception as e:
+        st.error(f"Lỗi đọc markers: {e}")
+        return {}
+
+def load_incidents():
+    try:
+        incidents = db.child("incidents").get().val()
+        incidents_dict = {}
+        if incidents:
+            for key, inc in incidents.items():
+                if isinstance(inc, dict) and inc.get("timestamp") and is_valid_coordinate(inc.get("lat"), inc.get("lng")):
+                    incidents_dict[key] = inc
+        return incidents_dict
+    except Exception as e:
+        st.error(f"Lỗi đọc incidents: {e}")
+        return {}
 
 # ==============================
-# 14. KHÔNG DÙNG st_autorefresh toàn app
-# ==============================
-
-# ==============================
-# 15. CHECKBOX TRACK (giữ nguyên)
+# 14. CHECKBOX TRACK
 # ==============================
 officers = load_officers_cached()
 if officers:
@@ -331,7 +869,7 @@ if officers:
         st.session_state.show_tracks[uid] = checked
 
 # ==============================
-# 16. CHUẨN BỊ MAP (cập nhật JavaScript tối ưu)
+# 15. CHUẨN BỊ MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -370,7 +908,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ TỐI ƯU VỚI VIEWPORT + CLUSTER + INCREMENTAL DRAWINGS)
+# 16. MAP HTML HOÀN CHỈNH (TỐI ƯU CAO)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -461,8 +999,8 @@ const userColors = {user_colors_json};
 
 let map = null;
 let officerClusterGroup = null;
-let allOfficers = {{}};           // lưu toàn bộ dữ liệu officer
-let officerMarkersInCluster = {{}}; // marker đã thêm vào cluster (key: uid)
+let allOfficers = {{}};
+let officerMarkersInCluster = {{}};
 let alertMarkers = {{}};
 let alertTimeouts = {{}};
 let pointMarkers = {{}};
@@ -486,10 +1024,9 @@ let tempPolyline = null;
 let drawingColor = '#ff0000';
 let drawingWeight = 3;
 
-// Debounce cho renderVisibleOfficers
 let renderTimeout = null;
 const RENDER_DEBOUNCE = 100;
-const VIEWPORT_PADDING = 0.1; // 10% mở rộng viewport
+const VIEWPORT_PADDING = 0.1;
 
 function isValidVNCoordinate(lat, lng) {{
     if (typeof lat !== 'number' || typeof lng !== 'number') return false;
@@ -549,16 +1086,13 @@ function getOfficerColorWithStatus(uid, lastUpdate) {{
     const now = Date.now();
     const diff = now - lastUpdate;
     if (diff > 5 * 60 * 1000 && diff < 20 * 60 * 1000) {{
-        return '#9ca3af'; // màu xám
+        return '#9ca3af';
     }}
     return userColors[uid] || '#0066cc';
 }}
 
-// ========== VIEWPORT FILTERING + CLUSTER ==========
 function renderVisibleOfficers() {{
     if (!map || !officerClusterGroup) return;
-    
-    // Lấy bounds hiện tại và mở rộng thêm 10% để preload
     const bounds = map.getBounds();
     const sw = bounds.getSouthWest();
     const ne = bounds.getNorthEast();
@@ -568,30 +1102,19 @@ function renderVisibleOfficers() {{
         [sw.lat - latPad, sw.lng - lngPad],
         [ne.lat + latPad, ne.lng + lngPad]
     );
-    
     Object.entries(allOfficers).forEach(([uid, officer]) => {{
         if (!officer || !isValidVNCoordinate(officer.lat, officer.lng)) return;
-        
         const isVisible = paddedBounds.contains([officer.lat, officer.lng]);
         const existingMarker = officerMarkersInCluster[uid];
         const lastUpdate = officer.lastUpdate || 0;
         const color = getOfficerColorWithStatus(uid, lastUpdate);
-        
         if (isVisible) {{
             if (!existingMarker) {{
-                // Tạo marker mới và thêm vào cluster
-                const marker = L.marker([officer.lat, officer.lng], {{
-                    icon: createOfficerIcon(color)
-                }});
-                marker.bindTooltip(officer.name || uid, {{
-                    permanent: true,
-                    direction: 'top',
-                    offset: [0, -12]
-                }});
+                const marker = L.marker([officer.lat, officer.lng], {{ icon: createOfficerIcon(color) }});
+                marker.bindTooltip(officer.name || uid, {{ permanent: true, direction: 'top', offset: [0, -12] }});
                 officerClusterGroup.addLayer(marker);
                 officerMarkersInCluster[uid] = marker;
             }} else {{
-                // Cập nhật vị trí và icon
                 existingMarker.setLatLng([officer.lat, officer.lng]);
                 existingMarker.setIcon(createOfficerIcon(color));
                 existingMarker.setTooltipContent(officer.name || uid);
@@ -605,12 +1128,9 @@ function renderVisibleOfficers() {{
     }});
 }}
 
-// Debounced render
 function scheduleRender() {{
     if (renderTimeout) clearTimeout(renderTimeout);
-    renderTimeout = setTimeout(() => {{
-        renderVisibleOfficers();
-    }}, RENDER_DEBOUNCE);
+    renderTimeout = setTimeout(() => renderVisibleOfficers(), RENDER_DEBOUNCE);
 }}
 
 function initMap() {{
@@ -629,8 +1149,6 @@ function initMap() {{
         maxZoom: 20,
         updateWhenZooming: false
     }}).addTo(map);
-    
-    // Khởi tạo cluster group
     officerClusterGroup = L.markerClusterGroup({{
         chunkedLoading: true,
         maxClusterRadius: 80,
@@ -639,14 +1157,12 @@ function initMap() {{
         zoomToBoundsOnClick: true
     }});
     map.addLayer(officerClusterGroup);
-    
     map.on('moveend', () => {{
         const center = map.getCenter();
         sessionStorage.setItem('mapCenter', JSON.stringify([center.lat, center.lng]));
         sessionStorage.setItem('mapZoom', map.getZoom());
         scheduleRender();
     }});
-    
     if (navigator.geolocation && !sessionStorage.getItem('zoomedToMe')) {{
         navigator.geolocation.getCurrentPosition(
             (position) => {{
@@ -699,7 +1215,6 @@ stationaryOfficers.forEach(officer => {{
     }}
 }});
 
-// ==================== OFFICERS (incremental + viewport) ====================
 const officersRef = ref(db, 'officers');
 onDisconnect(ref(db, 'officers/' + myUsername)).remove();
 
@@ -730,14 +1245,12 @@ onChildChanged(officersRef, (snapshot) => {{
 onChildRemoved(officersRef, (snapshot) => {{
     const id = snapshot.key;
     delete allOfficers[id];
-    // Xóa marker khỏi cluster nếu đang có
     if (officerMarkersInCluster[id]) {{
         officerClusterGroup.removeLayer(officerMarkersInCluster[id]);
         delete officerMarkersInCluster[id];
     }}
 }});
 
-// ==================== ALERTS (giữ nguyên) ====================
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 const playedAlerts = new Set(JSON.parse(sessionStorage.getItem("playedAlerts") || "[]"));
@@ -808,7 +1321,6 @@ onChildChanged(alertsRef, (data) => {{
 }});
 onChildRemoved(alertsRef, (data) => {{ const id = data.key; removeAlertMarker(id); }});
 
-// ==================== MARKERS (giữ nguyên) ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -843,7 +1355,6 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
     }});
 }});
 
-// ==================== INCIDENTS (giữ nguyên) ====================
 const incidentsRef = ref(db, 'incidents');
 const incidentIcon = L.divIcon({{ className: '', html: '<div class="incident-icon">📷</div>', iconSize: [30, 30], popupAnchor: [0, -15] }});
 onChildAdded(incidentsRef, (data) => {{
@@ -859,7 +1370,6 @@ onChildAdded(incidentsRef, (data) => {{
 }});
 onChildRemoved(incidentsRef, (data) => {{ const id = data.key; if (incidentMarkers[id]) {{ map.removeLayer(incidentMarkers[id]); delete incidentMarkers[id]; }} }});
 
-// ==================== TRACKS (giữ nguyên) ====================
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -901,7 +1411,6 @@ function loadUserTracks(userId, userName, show) {{
     }});
 }}
 
-// ==================== MOVE ORDERS (sửa để dùng allOfficers thay vì marker) ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -957,7 +1466,6 @@ function zoomToAllOfficers() {{
 }}
 setTimeout(zoomToAllOfficers, 2000);
 
-// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const clearBtn = document.createElement('button');
     clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ (lệnh di chuyển)';
@@ -977,7 +1485,6 @@ if (userRole === 'commander' || userRole === 'admin') {{
     document.body.appendChild(clearBtn);
 }}
 
-// ==================== DRAWING TOOLBAR (chỉ commander/admin) ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const toolbar = L.control({{ position: 'topright' }});
     toolbar.onAdd = () => {{
@@ -1105,9 +1612,9 @@ async function saveDrawing() {{
     cancelDrawing();
 }}
 
-// ==================== DRAWINGS - INCREMENTAL (onChildAdded/Removed) ====================
 let drawingLayers = {{}};
 const drawingsRef = ref(db, 'drawings');
+const recentDrawingsQuery = query(drawingsRef, limitToLast(50));
 
 document.addEventListener('click', async (e) => {{
     if (e.target && e.target.classList.contains('delete-drawing')) {{
@@ -1119,9 +1626,6 @@ document.addEventListener('click', async (e) => {{
     }}
 }});
 
-// Chỉ lấy 50 nét gần nhất để tránh quá tải
-const recentDrawingsQuery = query(drawingsRef, limitToLast(50));
-// Khởi tạo: load các drawing hiện có (chạy một lần)
 get(recentDrawingsQuery).then((snapshot) => {{
     const data = snapshot.val() || {{}};
     Object.entries(data).forEach(([id, drawing]) => {{
@@ -1141,12 +1645,11 @@ get(recentDrawingsQuery).then((snapshot) => {{
         drawingLayers[id] = polyline;
     }});
 }});
-// Lắng nghe thêm mới
 onChildAdded(recentDrawingsQuery, (snapshot) => {{
     const id = snapshot.key;
     const drawing = snapshot.val();
     if (!drawing || !drawing.points || drawing.points.length < 2) return;
-    if (drawingLayers[id]) return; // đã có
+    if (drawingLayers[id]) return;
     const latlngs = drawing.points.map(p => [p.lat, p.lng]);
     const polyline = L.polyline(latlngs, {{
         color: drawing.color || '#ff0000',
@@ -1169,7 +1672,6 @@ onChildRemoved(recentDrawingsQuery, (snapshot) => {{
     }}
 }});
 
-// ==================== DIALOG THÊM ĐIỂM (sửa để dùng allOfficers) ====================
 function showPointDialog(latlng) {{
     if (drawingMode) return;
     const oldOverlay = document.getElementById('dialog-overlay');
@@ -1298,7 +1800,6 @@ map.on('touchstart', (e) => {{
 map.on('touchend', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 map.on('touchcancel', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 
-// ==================== RA LỆNH TỪ SIDEBAR (chỉ commander/admin) ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     function activateSelectionMode(officerId, officerName) {{
         if (selectionMode) return;
@@ -1378,7 +1879,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
 </script> </body> </html> """
 
 # ==============================
-# 18. HIỂN THỊ MAP TRONG CARD
+# 17. HIỂN THỊ MAP VÀ CHAT
 # ==============================
 st.markdown('<div class="dashboard-card">', unsafe_allow_html=True)
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
@@ -1386,13 +1887,88 @@ with tab1:
     st.components.v1.html(map_html, height=620)
 with tab2:
     st.subheader("💬 Chat nội bộ")
-    # (giữ nguyên phần chat cũ)
-    ... (phần chat giữ nguyên) ...
+    # Tự động refresh mỗi 7 giây (có thể dùng st_autorefresh nhưng không bắt buộc)
+    # Để tránh lỗi, ta dùng một placeholder refresh đơn giản
+    def cleanup_old_messages():
+        msgs = db.child("messages").get().val()
+        if not msgs: return
+        now = int(time.time() * 1000)
+        for key, msg in msgs.items():
+            if now - msg.get("timestamp", 0) > 24*3600*1000:
+                db.child("messages").child(key).remove()
+    cleanup_old_messages()
+    
+    messages = db.child("messages").order_by_child("timestamp").limit_to_last(50).get()
+    if messages.val():
+        sorted_msgs = sorted(messages.val().items(), key=lambda x: x[1]["timestamp"])
+        for key, msg in sorted_msgs:
+            vn_time = datetime.fromtimestamp(
+                msg["timestamp"]/1000, tz=timezone(timedelta(hours=7))
+            ).strftime("%H:%M")
+            is_system = msg["from"] == "system"
+            if is_system:
+                avatar = "🤖"
+                bg_color = "#e5e7eb"
+                align = "center"
+            else:
+                is_me = (msg["from"] == username)
+                avatar = msg['name'][0].upper()
+                bg_color = "#dcf8c6" if is_me else "#f1f0f0"
+                align = "right" if is_me else "left"
+            st.markdown(
+                f"""
+                <div style='display:flex; justify-content:{align}; margin:10px 0;'>
+                    <div style='display:flex; align-items:flex-end; max-width:80%; gap:8px;'>
+                        {"<div style='order:2;' " if not is_system and is_me else ""}
+                            <div style='background:{bg_color}; padding:10px 15px; border-radius:15px; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
+                                <b>{msg['name']}</b> <span style='font-size:10px; color:gray'>{vn_time}</span><br>
+                                {msg['message']}
+                            </div>
+                        {"</div>" if not is_system and is_me else ""}
+                        <div style='width:36px; height:36px; background: #2563eb; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:white;'>
+                            {avatar}
+                        </div>
+                        {"<div style='order:2;' " if not is_system and not is_me else ""}</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        st.markdown("<script>window.scrollTo(0, document.body.scrollHeight);</script>", unsafe_allow_html=True)
+    else:
+        st.info("Chưa có tin nhắn nào.")
+    
+    if 'last_chat_time' not in st.session_state:
+        st.session_state.last_chat_time = 0
+    
+    with st.form("chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([5,1])
+        with col1:
+            message = st.text_input("Tin nhắn", placeholder="Nhập tin nhắn...", label_visibility="collapsed")
+        with col2:
+            sent = st.form_submit_button("Gửi")
+        if sent and message.strip():
+            now = time.time()
+            if now - st.session_state.last_chat_time < 2:
+                st.warning("Vui lòng chờ 2 giây trước khi gửi tin nhắn tiếp theo.")
+            else:
+                st.session_state.last_chat_time = now
+                chat_data = {
+                    "from": username, "name": name, "message": message,
+                    "timestamp": int(time.time() * 1000)
+                }
+                db.child("messages").push(chat_data)
+                all_msgs = db.child("messages").order_by_child("timestamp").get().val()
+                if all_msgs and len(all_msgs) > 200:
+                    sorted_all = sorted(all_msgs.items(), key=lambda x: x[1]["timestamp"])
+                    for k, _ in sorted_all[:-200]:
+                        db.child("messages").child(k).remove()
+                st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
-# 19. THÔNG TIN PHỤ TRONG SIDEBAR (giữ nguyên)
+# 18. THÔNG TIN PHỤ TRONG SIDEBAR
 # ==============================
 st.sidebar.markdown('<div class="sidebar-group"><h3>👥 TRỰC TUYẾN</h3></div>', unsafe_allow_html=True)
 if officers:
