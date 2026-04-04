@@ -1,7 +1,6 @@
 import streamlit as st
 import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities.hasher import Hasher
-from streamlit_autorefresh import st_autorefresh
 import yaml
 from yaml.loader import SafeLoader
 import pyrebase
@@ -294,7 +293,7 @@ db.child("users").child(username).set({
 })
 
 # ==============================
-# 6. CHIA SẺ VỊ TRÍ
+# 6. CHIA SẺ VỊ TRÍ (có lưu session_state)
 # ==============================
 if "sharing" not in st.session_state:
     existing = db.child("officers").child(username).get().val()
@@ -303,17 +302,24 @@ if "sharing" not in st.session_state:
     else:
         st.session_state.sharing = False
 
+# Lưu vị trí cuối cùng của Commander vào session_state để dùng khi rerun
+if "last_position" not in st.session_state:
+    st.session_state.last_position = None
+
 col1, col2 = st.columns([1, 5])
 with col1:
     if not st.session_state.sharing:
         if st.button("📡 Bắt đầu chia sẻ vị trí"):
             db.child("officers").child(username).remove()
             st.session_state.sharing = True
+            # Xóa vị trí cũ trong session_state
+            st.session_state.last_position = None
             st.rerun()
     else:
         if st.button("🛑 Dừng chia sẻ"):
             db.child("officers").child(username).remove()
             st.session_state.sharing = False
+            st.session_state.last_position = None
             st.rerun()
 
 # ==============================
@@ -332,7 +338,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. GPS SCRIPT (tối ưu)
+# 8. GPS SCRIPT (cập nhật Firebase)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -805,9 +811,9 @@ with st.sidebar:
         st.session_state.show_tracks = {}
 
 # ==============================
-# 13. LOAD DỮ LIỆU VỚI CACHE
+# 13. LOAD DỮ LIỆU VỚI CACHE (TTL ngắn để lấy dữ liệu mới)
 # ==============================
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=5, show_spinner=False)
 def load_officers_cached():
     try:
         result = db.child("officers").get().val()
@@ -869,7 +875,7 @@ if officers:
         st.session_state.show_tracks[uid] = checked
 
 # ==============================
-# 15. CHUẨN BỊ MAP
+# 15. CHUẨN BỊ MAP (truyền initialOfficers)
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -879,6 +885,11 @@ stationary_officers = detect_stationary_officers()
 stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
 user_role_json = json.dumps(user_role)
+
+# Lấy danh sách officers hiện tại (bao gồm cả Commander nếu đang online)
+initial_officers = load_officers_cached()
+# Chuyển đổi thành dict phù hợp với cấu trúc JavaScript
+initial_officers_json = json.dumps(initial_officers)
 
 try:
     officers_old = db.child("officers").get().val()
@@ -908,7 +919,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 16. MAP HTML HOÀN CHỈNH (TỐI ƯU CAO)
+# 16. MAP HTML HOÀN CHỈNH (có initialOfficers)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -996,6 +1007,7 @@ const userRole = {user_role_json};
 const showTracks = {show_tracks_json};
 const stationaryOfficers = {stationary_json};
 const userColors = {user_colors_json};
+const initialOfficers = {initial_officers_json};
 
 let map = null;
 let officerClusterGroup = null;
@@ -1206,15 +1218,16 @@ document.addEventListener("click", () => {{
     }}
 }});
 
-stationaryOfficers.forEach(officer => {{
-    if (isValidVNCoordinate(officer.lat, officer.lng)) {{
-        L.circleMarker([officer.lat, officer.lng], {{
-            radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2,
-            renderer: L.canvas()
-        }}).addTo(map).bindTooltip(`⚠ ${{officer.name}} đứng yên >15 phút`);
+// Khởi tạo allOfficers từ dữ liệu ban đầu (đảm bảo Commander hiện ngay)
+for (const [uid, officer] of Object.entries(initialOfficers)) {{
+    if (officer && isValidVNCoordinate(officer.lat, officer.lng)) {{
+        allOfficers[uid] = officer;
     }}
-}});
+}}
+// Render ngay lập tức
+scheduleRender();
 
+// Sau đó mới lắng nghe realtime từ Firebase
 const officersRef = ref(db, 'officers');
 onDisconnect(ref(db, 'officers/' + myUsername)).remove();
 
@@ -1251,6 +1264,16 @@ onChildRemoved(officersRef, (snapshot) => {{
     }}
 }});
 
+stationaryOfficers.forEach(officer => {{
+    if (isValidVNCoordinate(officer.lat, officer.lng)) {{
+        L.circleMarker([officer.lat, officer.lng], {{
+            radius: 8, color: 'orange', fillColor: 'orange', fillOpacity: 0.8, weight: 2,
+            renderer: L.canvas()
+        }}).addTo(map).bindTooltip(`⚠ ${{officer.name}} đứng yên >15 phút`);
+    }}
+}});
+
+// ==================== ALERTS ====================
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 const playedAlerts = new Set(JSON.parse(sessionStorage.getItem("playedAlerts") || "[]"));
@@ -1321,6 +1344,7 @@ onChildChanged(alertsRef, (data) => {{
 }});
 onChildRemoved(alertsRef, (data) => {{ const id = data.key; removeAlertMarker(id); }});
 
+// ==================== MARKERS ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1355,6 +1379,7 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
     }});
 }});
 
+// ==================== INCIDENTS ====================
 const incidentsRef = ref(db, 'incidents');
 const incidentIcon = L.divIcon({{ className: '', html: '<div class="incident-icon">📷</div>', iconSize: [30, 30], popupAnchor: [0, -15] }});
 onChildAdded(incidentsRef, (data) => {{
@@ -1370,6 +1395,7 @@ onChildAdded(incidentsRef, (data) => {{
 }});
 onChildRemoved(incidentsRef, (data) => {{ const id = data.key; if (incidentMarkers[id]) {{ map.removeLayer(incidentMarkers[id]); delete incidentMarkers[id]; }} }});
 
+// ==================== TRACKS ====================
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1411,6 +1437,7 @@ function loadUserTracks(userId, userName, show) {{
     }});
 }}
 
+// ==================== MOVE ORDERS ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1466,6 +1493,7 @@ function zoomToAllOfficers() {{
 }}
 setTimeout(zoomToAllOfficers, 2000);
 
+// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const clearBtn = document.createElement('button');
     clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ (lệnh di chuyển)';
@@ -1485,6 +1513,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
     document.body.appendChild(clearBtn);
 }}
 
+// ==================== DRAWING TOOLBAR (chỉ commander/admin) ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const toolbar = L.control({{ position: 'topright' }});
     toolbar.onAdd = () => {{
@@ -1612,6 +1641,7 @@ async function saveDrawing() {{
     cancelDrawing();
 }}
 
+// ==================== DRAWINGS - INCREMENTAL ====================
 let drawingLayers = {{}};
 const drawingsRef = ref(db, 'drawings');
 const recentDrawingsQuery = query(drawingsRef, limitToLast(50));
@@ -1672,6 +1702,7 @@ onChildRemoved(recentDrawingsQuery, (snapshot) => {{
     }}
 }});
 
+// ==================== DIALOG THÊM ĐIỂM ====================
 function showPointDialog(latlng) {{
     if (drawingMode) return;
     const oldOverlay = document.getElementById('dialog-overlay');
@@ -1800,6 +1831,7 @@ map.on('touchstart', (e) => {{
 map.on('touchend', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 map.on('touchcancel', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 
+// ==================== RA LỆNH TỪ SIDEBAR (chỉ commander/admin) ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     function activateSelectionMode(officerId, officerName) {{
         if (selectionMode) return;
