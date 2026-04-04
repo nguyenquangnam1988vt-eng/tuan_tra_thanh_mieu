@@ -979,7 +979,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ THÊM NÚT XOÁ TOÀN BỘ NÉT VẼ)
+# 17. MAP HTML HOÀN CHỈNH (ĐÃ SỬA XOÁ LỆNH DI CHUYỂN)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1023,7 +1023,7 @@ map_html = f"""
 <body> {order_js} <div id="map"></div> 
 <script type="module"> 
 import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"; 
-import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
+import {{ getDatabase, ref, onChildAdded, onChildChanged, onChildRemoved, onValue, query, limitToLast, update, push, onDisconnect, get, serverTimestamp, off, remove }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"; 
 import {{ getMessaging, getToken, onMessage }} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 
 const firebaseConfig = {json.dumps(firebase_config)};
@@ -1299,7 +1299,7 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
         const markerId = markerSnapshot.key;
         const fullId = `${{userId}}_${{markerId}}`;
         const age = Date.now() - point.timestamp;
-        if (age > 24*60*60*1000) {{ update(ref(db, `markers/${{userId}}/${{markerId}}`), null); return; }}
+        if (age > 24*60*60*1000) {{ remove(ref(db, `markers/${{userId}}/${{markerId}}`)); return; }}
         if (isValidVNCoordinate(point.lat, point.lng)) {{
             const marker = L.circleMarker([point.lat, point.lng], {{
                 radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
@@ -1316,14 +1316,14 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
                 const btn = document.querySelector(`.delete-btn[data-fullid="${{fullId}}"]`);
                 if (btn) {{
                     btn.onclick = async () => {{
-                        await update(ref(db, `markers/${{userId}}/${{markerId}}`), null);
+                        await remove(ref(db, `markers/${{userId}}/${{markerId}}`));
                         const moveOrdersSnap = await get(ref(db, 'move_orders'));
                         const orders = moveOrdersSnap.val() || {{}};
                         for (const [orderId, order] of Object.entries(orders)) {{
                             if (order.status !== 'active') continue;
                             const dist = haversine(order.toLat, order.toLng, point.lat, point.lng);
                             if (dist < 10) {{
-                                await update(ref(db, 'move_orders/' + orderId), null);
+                                await remove(ref(db, 'move_orders/' + orderId));
                             }}
                         }}
                         map.closePopup();
@@ -1349,7 +1349,7 @@ onChildAdded(incidentsRef, (data) => {{
     const inc = data.val();
     const id = data.key;
     const age = Date.now() - inc.timestamp;
-    if (age > 24*60*60*1000) {{ update(ref(db, 'incidents/' + id), null); return; }}
+    if (age > 24*60*60*1000) {{ remove(ref(db, 'incidents/' + id)); return; }}
     if (isValidVNCoordinate(inc.lat, inc.lng)) {{
         const marker = L.marker([inc.lat, inc.lng], {{ icon: incidentIcon }}).addTo(map)
             .bindPopup(`<b>${{inc.created_by}}</b><br> ${{inc.note}}<br> <img src="${{inc.image_url}}" style="max-width:200px; max-height:200px;"><br> ${{new Date(inc.timestamp).toLocaleString()}}`);
@@ -1418,13 +1418,19 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
         L.popup().setLatLng([order.toLat, order.toLng]).setContent(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}<br>Ghi chú: ${{order.note || 'không'}}`).openOn(map);
     }}
     polyline.on('popupopen', () => {{
-        const btn = document.querySelector(`.delete-btn[data-orderid="${{orderId}}"]`);
-        if (btn) {{
-            btn.onclick = async () => {{
-                await update(ref(db, 'move_orders/' + orderId), null);
-                map.closePopup();
-            }};
-        }}
+        setTimeout(() => {{
+            const btn = document.querySelector(`.delete-btn[data-orderid="${{orderId}}"]`);
+            if (btn) {{
+                btn.onclick = async () => {{
+                    await remove(ref(db, 'move_orders/' + orderId));
+                    if (moveOrderLines[orderId]) {{
+                        map.removeLayer(moveOrderLines[orderId]);
+                        delete moveOrderLines[orderId];
+                    }}
+                    map.closePopup();
+                }};
+            }}
+        }}, 50);
     }});
 }});
 onChildRemoved(moveOrdersRef, (snapshot) => {{
@@ -1444,7 +1450,7 @@ function checkOrdersCompletion() {{
             const officerPos = officer.getLatLng();
             const dist = haversine(officerPos.lat, officerPos.lng, order.toLat, order.toLng);
             if (dist < 20) {{
-                update(ref(db, 'move_orders/' + orderId), null);
+                remove(ref(db, 'move_orders/' + orderId));
             }}
         }}
     }}).catch(console.error);
@@ -1469,11 +1475,13 @@ if (userRole === 'commander' || userRole === 'admin') {{
     clearBtn.className = 'clear-orders-btn';
     clearBtn.onclick = async () => {{
         if (confirm('Bạn có chắc muốn xoá TOÀN BỘ lệnh di chuyển đang hoạt động?')) {{
-            const ordersSnap = await get(moveOrdersRef);
-            const orders = ordersSnap.val() || {{}};
-            for (const orderId of Object.keys(orders)) {{
-                await update(ref(db, 'move_orders/' + orderId), null);
-            }}
+            await remove(moveOrdersRef);
+            Object.keys(moveOrderLines).forEach(orderId => {{
+                if (moveOrderLines[orderId]) {{
+                    map.removeLayer(moveOrderLines[orderId]);
+                    delete moveOrderLines[orderId];
+                }}
+            }});
             alert('Đã xoá tất cả lệnh di chuyển.');
         }}
     }};
