@@ -979,7 +979,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ THÊM XOÁ ĐIỂM & XOÁ LỆNH)
+# 17. MAP HTML HOÀN CHỈNH (ĐÃ THÊM NÚT XOÁ TOÀN BỘ NÉT VẼ)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1018,6 +1018,7 @@ map_html = f"""
     .custom-dialog button {{ padding: 8px 12px; margin-right: 8px; border: none; border-radius: 6px; cursor: pointer; }}
     .dialog-overlay {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1999; }}
     .delete-btn {{ background: #ff4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; margin-top: 5px; }}
+    .clear-orders-btn {{ position: absolute; top: 10px; right: 10px; background: #ff8800; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; z-index: 1000; font-size: 14px; font-weight: bold; }}
 </style>
 <body> {order_js} <div id="map"></div> 
 <script type="module"> 
@@ -1041,7 +1042,7 @@ let map = null;
 let officerMarkers = {{}};
 let alertMarkers = {{}};
 let alertTimeouts = {{}};
-let pointMarkers = {{}};      // lưu các marker điểm đánh dấu (key: fullId)
+let pointMarkers = {{}};
 let incidentMarkers = {{}};
 let trackPolylines = {{}};
 let trackListeners = {{}};
@@ -1304,23 +1305,18 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
                 radius: 6, color: '#ffaa00', fillColor: '#ffaa00', fillOpacity: 0.8, weight: 1,
                 renderer: L.canvas()
             }}).addTo(map);
-            // Tạo nội dung popup
             let popupContent = `<b>${{point.created_by}}</b><br>${{point.note}}<br>${{new Date(point.timestamp).toLocaleString()}}`;
-            // Kiểm tra quyền xoá: chủ sở hữu hoặc commander/admin
             const canDelete = (point.created_by === myName) || (userRole === 'commander') || (userRole === 'admin');
             if (canDelete) {{
                 popupContent += `<br><button class="delete-btn" data-fullid="${{fullId}}" data-userid="${{userId}}" data-markerid="${{markerId}}">🗑️ Xoá điểm</button>`;
             }}
             marker.bindPopup(popupContent);
             pointMarkers[fullId] = marker;
-            // Xử lý sự kiện click nút xoá (dùng event delegation)
             marker.on('popupopen', () => {{
                 const btn = document.querySelector(`.delete-btn[data-fullid="${{fullId}}"]`);
                 if (btn) {{
                     btn.onclick = async () => {{
-                        // Xoá marker khỏi Firebase
                         await update(ref(db, `markers/${{userId}}/${{markerId}}`), null);
-                        // Tìm và xoá các move_orders có toạ độ đích trùng với điểm này (sai số 10m)
                         const moveOrdersSnap = await get(ref(db, 'move_orders'));
                         const orders = moveOrdersSnap.val() || {{}};
                         for (const [orderId, order] of Object.entries(orders)) {{
@@ -1328,7 +1324,6 @@ onChildAdded(markersRootRef, (userSnapshot) => {{
                             const dist = haversine(order.toLat, order.toLng, point.lat, point.lng);
                             if (dist < 10) {{
                                 await update(ref(db, 'move_orders/' + orderId), null);
-                                console.log(`Đã xoá lệnh ${{orderId}} do điểm đánh dấu bị xoá`);
                             }}
                         }}
                         map.closePopup();
@@ -1398,7 +1393,7 @@ onValue(officersRef, (snapshot) => {{
     }});
 }});
 
-// ==================== MOVE ORDERS (có nút huỷ) ====================
+// ==================== MOVE ORDERS (có nút huỷ lệnh và nút xoá toàn bộ) ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1413,7 +1408,6 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
     if (polyline.arrowheads) polyline.arrowheads({{ size: '12px', frequency: 'all', color: '#ff8800' }});
     const officerName = officerMarkers[order.officerId]?.getTooltip()?.getContent() || order.officerId;
     let popupContent = `📍 Lệnh di chuyển<br>Từ: ${{order.commanderName}}<br>Đến: ${{officerName}}<br>Điểm đến: ${{order.toLat.toFixed(6)}}, ${{order.toLng.toFixed(6)}}<br>Ghi chú: ${{order.note || 'không'}}`;
-    // Cho phép huỷ lệnh nếu là người ra lệnh hoặc commander/admin
     const canCancel = (order.commanderId === myUsername) || (userRole === 'commander') || (userRole === 'admin');
     if (canCancel) {{
         popupContent += `<br><button class="delete-btn" data-orderid="${{orderId}}">❌ Huỷ lệnh</button>`;
@@ -1423,7 +1417,6 @@ onChildAdded(moveOrdersRef, (snapshot) => {{
     if (order.officerId === myUsername) {{
         L.popup().setLatLng([order.toLat, order.toLng]).setContent(`🚶 Bạn được lệnh di chuyển đến đây từ ${{order.commanderName}}<br>Ghi chú: ${{order.note || 'không'}}`).openOn(map);
     }}
-    // Xử lý sự kiện nút huỷ
     polyline.on('popupopen', () => {{
         const btn = document.querySelector(`.delete-btn[data-orderid="${{orderId}}"]`);
         if (btn) {{
@@ -1468,6 +1461,24 @@ onValue(officersRef, (snapshot) => {{
     const officers = snapshot.val() || {{}};
     if (Object.keys(officers).length > 1) zoomToAllOfficers();
 }});
+
+// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN (chỉ commander/admin) ====================
+if (userRole === 'commander' || userRole === 'admin') {{
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ (lệnh di chuyển)';
+    clearBtn.className = 'clear-orders-btn';
+    clearBtn.onclick = async () => {{
+        if (confirm('Bạn có chắc muốn xoá TOÀN BỘ lệnh di chuyển đang hoạt động?')) {{
+            const ordersSnap = await get(moveOrdersRef);
+            const orders = ordersSnap.val() || {{}};
+            for (const orderId of Object.keys(orders)) {{
+                await update(ref(db, 'move_orders/' + orderId), null);
+            }}
+            alert('Đã xoá tất cả lệnh di chuyển.');
+        }}
+    }};
+    document.body.appendChild(clearBtn);
+}}
 
 // ==================== DIALOG THÊM ĐIỂM ====================
 function showPointDialog(latlng) {{
