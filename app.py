@@ -147,7 +147,121 @@ st.set_page_config(page_title="Tuần tra cơ động", layout="wide")
 
 st.markdown("""
 <style>
-/* ... (giữ nguyên CSS như cũ) ... */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+* {
+    font-family: 'Inter', sans-serif;
+}
+
+.stApp {
+    background: #f3f4f6;
+}
+
+section[data-testid="stSidebar"] {
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+}
+section[data-testid="stSidebar"] .stMarkdown,
+section[data-testid="stSidebar"] .stText,
+section[data-testid="stSidebar"] .stSelectbox label,
+section[data-testid="stSidebar"] .stCheckbox label {
+    color: #1f2937 !important;
+}
+section[data-testid="stSidebar"] .stButton button {
+    background: #2563eb;
+    color: white;
+    border-radius: 8px;
+    font-weight: 500;
+}
+section[data-testid="stSidebar"] .stButton button:hover {
+    background: #1d4ed8;
+}
+section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] {
+    background-color: #f9fafb;
+    border-color: #d1d5db;
+}
+section[data-testid="stSidebar"] .stTextInput input,
+section[data-testid="stSidebar"] .stTextArea textarea {
+    background-color: #f9fafb;
+    border-color: #d1d5db;
+    color: #1f2937;
+}
+
+.stButton button {
+    border-radius: 8px;
+    font-weight: 500;
+    border: none;
+    transition: 0.2s;
+}
+
+.dashboard-card {
+    background: white;
+    padding: 20px;
+    border-radius: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+}
+
+.custom-header {
+    margin-bottom: 1.5rem;
+}
+.custom-header h2 {
+    color: #1f2937;
+    margin-bottom: 0;
+    font-weight: 700;
+}
+.custom-header p {
+    color: #6b7280;
+    margin-top: 4px;
+}
+
+.sidebar-group {
+    margin-bottom: 24px;
+}
+.sidebar-group h3 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #6b7280;
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+.sidebar-card {
+    background: #f9fafb;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1px solid #e5e7eb;
+}
+
+/* Drawing toolbar styles */
+.drawing-toolbar button {
+    cursor: pointer;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    margin: 2px;
+    padding: 4px 8px;
+}
+.drawing-toolbar button:hover {
+    opacity: 0.8;
+}
+.drawing-info {
+    background: white;
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.delete-drawing {
+    background: #ff4444;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-top: 5px;
+    cursor: pointer;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -231,7 +345,7 @@ with col1:
             st.rerun()
 
 # ==============================
-# 7. TÌM CÁN BỘ GẦN NHẤT (giữ nguyên)
+# 7. TÌM CÁN BỘ GẦN NHẤT
 # ==============================
 def find_nearest_officers(lat, lng, limit=3):
     officers = db.child("officers").get().val()
@@ -246,7 +360,7 @@ def find_nearest_officers(lat, lng, limit=3):
     return [uid for uid, _ in distances[:limit]]
 
 # ==============================
-# 8. GPS SCRIPT (đã tối ưu gửi khi di chuyển >10m)
+# 8. GPS SCRIPT (tối ưu: chỉ gửi khi di chuyển >10m)
 # ==============================
 if st.session_state.sharing:
     gps_script = f"""
@@ -410,22 +524,52 @@ def send_fcm_notification(title, body, target_token, server_key):
         return None
 
 # ==============================
-# 10. CLEANUP (giữ nguyên)
+# 10. CLEANUP (tự động dọn dẹp)
 # ==============================
 def cleanup_old_data():
     try:
+        # Xóa incidents cũ > 24h
         incidents = db.child("incidents").get().val()
         if incidents:
             now = int(time.time() * 1000)
             for key, inc in incidents.items():
                 if now - inc.get("timestamp", 0) > 24 * 3600 * 1000:
                     db.child("incidents").child(key).remove()
+        
+        # Xóa alerts cũ > 1h
         alerts = db.child("alerts").get().val()
         if alerts:
             now = int(time.time() * 1000)
             for key, alert in alerts.items():
                 if now - alert.get("timestamp", 0) > 60 * 60 * 1000:
                     db.child("alerts").child(key).remove()
+        
+        # Xóa drawings cũ > 24h
+        drawings = db.child("drawings").get().val()
+        if drawings:
+            now = int(time.time() * 1000)
+            for key, drawing in drawings.items():
+                if now - drawing.get("timestamp", 0) > 24 * 3600 * 1000:
+                    db.child("drawings").child(key).remove()
+        
+        # Xóa markers cũ > 24h (tất cả user)
+        markers = db.child("markers").get().val()
+        if markers:
+            now = int(time.time() * 1000)
+            for uid, user_markers in markers.items():
+                if user_markers and isinstance(user_markers, dict):
+                    for marker_key, marker in user_markers.items():
+                        if now - marker.get("timestamp", 0) > 24 * 3600 * 1000:
+                            db.child("markers").child(uid).child(marker_key).remove()
+        
+        # Xóa move_orders cũ > 30 phút (chưa hoàn thành)
+        move_orders = db.child("move_orders").get().val()
+        if move_orders:
+            now = int(time.time() * 1000)
+            for key, order in move_orders.items():
+                if now - order.get("timestamp", 0) > 30 * 60 * 1000:
+                    db.child("move_orders").child(key).remove()
+                    
     except Exception as e:
         print("Cleanup error:", e)
 
@@ -435,11 +579,12 @@ def cleanup_offline_officers():
         if not officers:
             return
         now = int(time.time() * 1000)
-        limit = 20 * 60 * 1000
+        limit = 20 * 60 * 1000  # 20 phút
         for uid, data in officers.items():
             last_update = data.get("lastUpdate")
             if last_update and now - int(last_update) > limit:
                 db.child("officers").child(uid).remove()
+                print(f"Đã xóa officer {uid} do không cập nhật vị trí >20 phút")
     except Exception as e:
         print("Cleanup offline officers error:", e)
 
@@ -696,7 +841,7 @@ with st.sidebar:
         st.session_state.show_tracks = {}
 
 # ==============================
-# 13. LOAD DỮ LIỆU VỚI CACHE VÀ REFRESH CÓ KIỂM SOÁT
+# 13. LOAD DỮ LIỆU VỚI CACHE
 # ==============================
 @st.cache_data(ttl=10)
 def load_officers_cached():
@@ -746,12 +891,11 @@ def load_incidents():
         return {}
 
 # ==============================
-# 14. KHÔNG DÙNG st_autorefresh toàn app, thay bằng cơ chế refresh dữ liệu định kỳ trong JS map
+# 14. KHÔNG DÙNG st_autorefresh toàn app
 # ==============================
-# Chúng ta sẽ không gọi st_autorefresh nữa, mà để map tự refresh qua Firebase realtime.
 
 # ==============================
-# 15. CHECKBOX TRACK (chỉ hiển thị, không ảnh hưởng refresh)
+# 15. CHECKBOX TRACK
 # ==============================
 officers = load_officers_cached()
 if officers:
@@ -804,7 +948,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 17. MAP HTML HOÀN CHỈNH (ĐÃ SỬA PHÂN QUYỀN)
+# 17. MAP HTML HOÀN CHỈNH (ĐÃ TỐI ƯU)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -814,7 +958,6 @@ map_html = f"""
 <script src="https://unpkg.com/leaflet-arrowheads@1.2.0/dist/leaflet-arrowheads.js"></script> 
 <script src="https://cdn.jsdelivr.net/npm/nosleep.js@0.12.0/dist/NoSleep.min.js"></script> 
 <style> 
-    /* ... (giữ nguyên CSS như cũ) ... */
     #map {{ height: 600px; width: 100%; }} 
     .leaflet-container {{ will-change: transform; }} 
     .leaflet-tooltip {{ background: transparent; border: none; box-shadow: none; font-weight: bold; color: #333; text-shadow: 1px 1px 2px white; font-size: 12px; margin-top: -15px !important; white-space: nowrap; }} 
@@ -1171,7 +1314,7 @@ onChildChanged(alertsRef, (data) => {{
 }});
 onChildRemoved(alertsRef, (data) => {{ const id = data.key; removeAlertMarker(id); }});
 
-// ==================== MARKERS (giữ nguyên) ====================
+// ==================== MARKERS ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1222,7 +1365,7 @@ onChildAdded(incidentsRef, (data) => {{
 }});
 onChildRemoved(incidentsRef, (data) => {{ const id = data.key; if (incidentMarkers[id]) {{ map.removeLayer(incidentMarkers[id]); delete incidentMarkers[id]; }} }});
 
-// ==================== TRACKS (giữ nguyên) ====================
+// ==================== TRACKS ====================
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
@@ -1263,7 +1406,7 @@ function loadUserTracks(userId, userName, show) {{
         }}
     }});
 }}
-// ==================== MOVE ORDERS (chỉ commander/admin mới được tạo, nhưng tất cả đều thấy) ====================
+// ==================== MOVE ORDERS ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1320,7 +1463,7 @@ function zoomToAllOfficers() {{
 }}
 setTimeout(zoomToAllOfficers, 2000);
 
-// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN (chỉ commander/admin) ====================
+// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const clearBtn = document.createElement('button');
     clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ (lệnh di chuyển)';
@@ -1519,7 +1662,6 @@ function showPointDialog(latlng) {{
     const dialog = document.createElement('div');
     dialog.className = 'custom-dialog';
     
-    // Nếu là officer: chỉ cho đánh dấu điểm, không có select ra lệnh
     if (userRole === 'officer') {{
         dialog.innerHTML = `
             <h4>📍 Đánh dấu điểm</h4>
@@ -1577,7 +1719,6 @@ function showPointDialog(latlng) {{
         }} else {{
             const selectedOfficerUid = document.getElementById('officer-select')?.value;
             if (!selectedOfficerUid) {{
-                // Đánh dấu điểm
                 push(ref(db, 'markers/' + myUsername), {{
                     created_by: myName,
                     lat: latlng.lat,
@@ -1720,7 +1861,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
 </script> </body> </html> """
 
 # ==============================
-# 18. HIỂN THỊ MAP TRONG CARD (dùng st.empty để giữ placeholder nếu cần)
+# 18. HIỂN THỊ MAP TRONG CARD
 # ==============================
 st.markdown('<div class="dashboard-card">', unsafe_allow_html=True)
 tab1, tab2 = st.tabs(["🗺️ Bản đồ", "💬 Chat nội bộ"])
@@ -1728,7 +1869,6 @@ with tab1:
     st.components.v1.html(map_html, height=620)
 with tab2:
     st.subheader("💬 Chat nội bộ")
-    # Chat refresh dùng st_autorefresh với interval 7s (vẫn chấp nhận được vì ít dữ liệu)
     st_autorefresh(interval=7000, key="chat_refresh")
     
     def cleanup_old_messages():
