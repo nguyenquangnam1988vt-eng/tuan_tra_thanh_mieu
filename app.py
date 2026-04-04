@@ -302,7 +302,6 @@ if "sharing" not in st.session_state:
     else:
         st.session_state.sharing = False
 
-# Lưu vị trí cuối cùng của Commander vào session_state để dùng khi rerun
 if "last_position" not in st.session_state:
     st.session_state.last_position = None
 
@@ -312,7 +311,6 @@ with col1:
         if st.button("📡 Bắt đầu chia sẻ vị trí"):
             db.child("officers").child(username).remove()
             st.session_state.sharing = True
-            # Xóa vị trí cũ trong session_state
             st.session_state.last_position = None
             st.rerun()
     else:
@@ -757,6 +755,13 @@ if user_role in ["commander", "admin"]:
                     st.success("Đã xóa toàn bộ ghi chú!")
                 except Exception as e:
                     st.error(f"Lỗi xóa: {e}")
+            # BỔ SUNG: nút xóa tất cả ảnh hiện trường
+            if st.button("📸 Xóa tất cả ảnh hiện trường", key="delete_all_incidents"):
+                try:
+                    db.child("incidents").remove()
+                    st.success("Đã xóa toàn bộ ảnh hiện trường!")
+                except Exception as e:
+                    st.error(f"Lỗi xóa: {e}")
             st.markdown('</div>', unsafe_allow_html=True)
 
     if user_role == "admin":
@@ -811,7 +816,7 @@ with st.sidebar:
         st.session_state.show_tracks = {}
 
 # ==============================
-# 13. LOAD DỮ LIỆU VỚI CACHE (TTL ngắn để lấy dữ liệu mới)
+# 13. LOAD DỮ LIỆU VỚI CACHE
 # ==============================
 @st.cache_data(ttl=5, show_spinner=False)
 def load_officers_cached():
@@ -875,7 +880,7 @@ if officers:
         st.session_state.show_tracks[uid] = checked
 
 # ==============================
-# 15. CHUẨN BỊ MAP (truyền initialOfficers)
+# 15. CHUẨN BỊ MAP
 # ==============================
 alert_sound_base64 = get_base64("alert.mp3")
 show_tracks_json = json.dumps(st.session_state.get("show_tracks", {}))
@@ -886,9 +891,7 @@ stationary_json = json.dumps(stationary_officers)
 user_colors_json = json.dumps(user_colors)
 user_role_json = json.dumps(user_role)
 
-# Lấy danh sách officers hiện tại (bao gồm cả Commander nếu đang online)
 initial_officers = load_officers_cached()
-# Chuyển đổi thành dict phù hợp với cấu trúc JavaScript
 initial_officers_json = json.dumps(initial_officers)
 
 try:
@@ -919,7 +922,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 16. MAP HTML HOÀN CHỈNH (có initialOfficers)
+# 16. MAP HTML (đã bao gồm NoSleep với click & touch)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1190,11 +1193,15 @@ function initMap() {{
     }}
 }}
 
+// ==================== KÍCH HOẠT NoSleep (giữ màn hình sáng) ====================
 let noSleep = new NoSleep();
-document.addEventListener('click', function enableNoSleep() {{
+function enableNoSleep() {{
     noSleep.enable();
     document.removeEventListener('click', enableNoSleep);
-}});
+    document.removeEventListener('touchstart', enableNoSleep);
+}}
+document.addEventListener('click', enableNoSleep);
+document.addEventListener('touchstart', enableNoSleep);
 
 if ('serviceWorker' in navigator && "{fcm_vapid_key}" !== "") {{
     navigator.serviceWorker.register('/firebase-messaging-sw.js')
@@ -1224,10 +1231,9 @@ for (const [uid, officer] of Object.entries(initialOfficers)) {{
         allOfficers[uid] = officer;
     }}
 }}
-// Render ngay lập tức
 scheduleRender();
 
-// Sau đó mới lắng nghe realtime từ Firebase
+// Lắng nghe realtime từ Firebase
 const officersRef = ref(db, 'officers');
 onDisconnect(ref(db, 'officers/' + myUsername)).remove();
 
@@ -1919,8 +1925,6 @@ with tab1:
     st.components.v1.html(map_html, height=620)
 with tab2:
     st.subheader("💬 Chat nội bộ")
-    # Tự động refresh mỗi 7 giây (có thể dùng st_autorefresh nhưng không bắt buộc)
-    # Để tránh lỗi, ta dùng một placeholder refresh đơn giản
     def cleanup_old_messages():
         msgs = db.child("messages").get().val()
         if not msgs: return
