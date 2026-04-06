@@ -1690,7 +1690,7 @@ onChildAdded(drawingsRef, (snapshot) => {{
         }});
     }}
 
-    let popupContent = `✏️ Vẽ bởi: ${drawing.author}<br>${new Date(drawing.timestamp).toLocaleString()}`;
+    let popupContent = `✏️ Vẽ bởi: ${{drawing.author}}<br>${{new Date(drawing.timestamp).toLocaleString()}}`;
     const canDelete = (userRole === 'commander' || userRole === 'admin' || drawing.authorId === myUsername);
 
     if (canDelete) {{
