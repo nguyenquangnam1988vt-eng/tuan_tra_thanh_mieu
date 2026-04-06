@@ -921,7 +921,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 16. MAP HTML (đã bao gồm NoSleep, vẽ mũi tên cho officer, nút xoá tất cả báo động)
+# 16. MAP HTML (đã sửa lỗi ${} và memory leak)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1014,7 +1014,7 @@ const initialOfficers = {initial_officers_json};
 let map = null;
 let officerClusterGroup = null;
 let allOfficers = {{}};
-let officerMarkersInCluster = {{}};
+let officerMarkers = {{}}; // thay vì officerMarkersInCluster, lưu marker riêng để cập nhật nhanh
 let alertMarkers = {{}};
 let alertTimeouts = {{}};
 let pointMarkers = {{}};
@@ -1038,7 +1038,6 @@ let tempPolyline = null;
 let drawingColor = '#ff0000';
 let drawingWeight = 3;
 
-// Biến cho chế độ vẽ mũi tên của officer
 let arrowMode = false;
 let arrowStart = null;
 let arrowTempLine = null;
@@ -1110,46 +1109,32 @@ function getOfficerColorWithStatus(uid, lastUpdate) {{
     return userColors[uid] || '#0066cc';
 }}
 
-function renderVisibleOfficers() {{
+// Cập nhật hoặc tạo mới marker cho một officer
+function updateOfficerMarker(uid, officer) {{
     if (!map || !officerClusterGroup) return;
-    const bounds = map.getBounds();
-    const sw = bounds.getSouthWest();
-    const ne = bounds.getNorthEast();
-    const latPad = (ne.lat - sw.lat) * VIEWPORT_PADDING;
-    const lngPad = (ne.lng - sw.lng) * VIEWPORT_PADDING;
-    const paddedBounds = L.latLngBounds(
-        [sw.lat - latPad, sw.lng - lngPad],
-        [ne.lat + latPad, ne.lng + lngPad]
-    );
-    Object.entries(allOfficers).forEach(([uid, officer]) => {{
-        if (!officer || !isValidVNCoordinate(officer.lat, officer.lng)) return;
-        const isVisible = paddedBounds.contains([officer.lat, officer.lng]);
-        const existingMarker = officerMarkersInCluster[uid];
-        const lastUpdate = officer.lastUpdate || 0;
-        const color = getOfficerColorWithStatus(uid, lastUpdate);
-        if (isVisible) {{
-            if (!existingMarker) {{
-                const marker = L.marker([officer.lat, officer.lng], {{ icon: createOfficerIcon(color) }});
-                marker.bindTooltip(officer.name || uid, {{ permanent: true, direction: 'top', offset: [0, -12] }});
-                officerClusterGroup.addLayer(marker);
-                officerMarkersInCluster[uid] = marker;
-            }} else {{
-                existingMarker.setLatLng([officer.lat, officer.lng]);
-                existingMarker.setIcon(createOfficerIcon(color));
-                existingMarker.setTooltipContent(officer.name || uid);
-            }}
-        }} else {{
-            if (existingMarker) {{
-                officerClusterGroup.removeLayer(existingMarker);
-                delete officerMarkersInCluster[uid];
-            }}
-        }}
-    }});
+    const latlng = [officer.lat, officer.lng];
+    const lastUpdate = officer.lastUpdate || 0;
+    const color = getOfficerColorWithStatus(uid, lastUpdate);
+    if (officerMarkers[uid]) {{
+        // Cập nhật marker hiện có
+        officerMarkers[uid].setLatLng(latlng);
+        officerMarkers[uid].setIcon(createOfficerIcon(color));
+        officerMarkers[uid].setTooltipContent(officer.name || uid);
+    }} else {{
+        // Tạo mới
+        const marker = L.marker(latlng, {{ icon: createOfficerIcon(color) }});
+        marker.bindTooltip(officer.name || uid, {{ permanent: true, direction: 'top', offset: [0, -12] }});
+        officerClusterGroup.addLayer(marker);
+        officerMarkers[uid] = marker;
+    }}
 }}
 
-function scheduleRender() {{
-    if (renderTimeout) clearTimeout(renderTimeout);
-    renderTimeout = setTimeout(() => renderVisibleOfficers(), RENDER_DEBOUNCE);
+// Xóa marker của officer
+function removeOfficerMarker(uid) {{
+    if (officerMarkers[uid]) {{
+        officerClusterGroup.removeLayer(officerMarkers[uid]);
+        delete officerMarkers[uid];
+    }}
 }}
 
 function initMap() {{
@@ -1180,7 +1165,6 @@ function initMap() {{
         const center = map.getCenter();
         sessionStorage.setItem('mapCenter', JSON.stringify([center.lat, center.lng]));
         sessionStorage.setItem('mapZoom', map.getZoom());
-        scheduleRender();
     }});
     if (navigator.geolocation && !sessionStorage.getItem('zoomedToMe')) {{
         navigator.geolocation.getCurrentPosition(
@@ -1197,7 +1181,7 @@ function initMap() {{
     }}
 }}
 
-// ==================== KÍCH HOẠT NoSleep ====================
+// Kích hoạt NoSleep
 let noSleep = new NoSleep();
 function enableNoSleep() {{
     noSleep.enable();
@@ -1229,13 +1213,13 @@ document.addEventListener("click", () => {{
     }}
 }});
 
-// Khởi tạo allOfficers
+// Khởi tạo allOfficers và marker từ initialOfficers
 for (const [uid, officer] of Object.entries(initialOfficers)) {{
     if (officer && isValidVNCoordinate(officer.lat, officer.lng)) {{
         allOfficers[uid] = officer;
+        updateOfficerMarker(uid, officer);
     }}
 }}
-scheduleRender();
 
 // Lắng nghe realtime
 const officersRef = ref(db, 'officers');
@@ -1248,7 +1232,7 @@ onChildAdded(officersRef, (snapshot) => {{
     if (typeof officer.lat !== 'number' || typeof officer.lng !== 'number') return;
     if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
     allOfficers[id] = officer;
-    scheduleRender();
+    updateOfficerMarker(id, officer);
     if (id === myUsername && !sessionStorage.getItem('zoomedToMe')) {{
         map.setView([officer.lat, officer.lng], 16);
         sessionStorage.setItem('zoomedToMe', 'true');
@@ -1262,16 +1246,13 @@ onChildChanged(officersRef, (snapshot) => {{
     if (typeof officer.lat !== 'number' || typeof officer.lng !== 'number') return;
     if (!isValidVNCoordinate(officer.lat, officer.lng)) return;
     allOfficers[id] = officer;
-    scheduleRender();
+    updateOfficerMarker(id, officer);
 }});
 
 onChildRemoved(officersRef, (snapshot) => {{
     const id = snapshot.key;
     delete allOfficers[id];
-    if (officerMarkersInCluster[id]) {{
-        officerClusterGroup.removeLayer(officerMarkersInCluster[id]);
-        delete officerMarkersInCluster[id];
-    }}
+    removeOfficerMarker(id);
 }});
 
 stationaryOfficers.forEach(officer => {{
@@ -1283,7 +1264,7 @@ stationaryOfficers.forEach(officer => {{
     }}
 }});
 
-// ==================== ALERTS ====================
+// ==================== ALERTS (giữ nguyên nhưng đã sửa lỗi ${} ====================
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 const playedAlerts = new Set(JSON.parse(sessionStorage.getItem("playedAlerts") || "[]"));
@@ -1354,7 +1335,7 @@ onChildChanged(alertsRef, (data) => {{
 }});
 onChildRemoved(alertsRef, (data) => {{ const id = data.key; removeAlertMarker(id); }});
 
-// ==================== MARKERS ====================
+// ==================== MARKERS (giữ nguyên) ====================
 const markersRootRef = ref(db, 'markers');
 onChildAdded(markersRootRef, (userSnapshot) => {{
     const userId = userSnapshot.key;
@@ -1405,13 +1386,16 @@ onChildAdded(incidentsRef, (data) => {{
 }});
 onChildRemoved(incidentsRef, (data) => {{ const id = data.key; if (incidentMarkers[id]) {{ map.removeLayer(incidentMarkers[id]); delete incidentMarkers[id]; }} }});
 
-// ==================== TRACKS ====================
+// ==================== TRACKS (đã sửa memory leak: off khi ẩn track) ====================
 function loadUserTracks(userId, userName, show) {{
     const tracksRef = ref(db, 'tracks/' + userId + '/points');
     const tracksQuery = query(tracksRef, limitToLast(30));
     if (!show) {{
         if (trackPolylines[userId]) {{ map.removeLayer(trackPolylines[userId]); delete trackPolylines[userId]; }}
-        if (trackListeners[userId]) {{ off(tracksQuery); trackListeners[userId] = false; }}
+        if (trackListeners[userId]) {{
+            off(tracksQuery); // Gỡ listener
+            delete trackListeners[userId];
+        }}
         return;
     }}
     if (trackListeners[userId]) return;
@@ -1447,7 +1431,7 @@ function loadUserTracks(userId, userName, show) {{
     }});
 }}
 
-// ==================== MOVE ORDERS ====================
+// ==================== MOVE ORDERS (sửa lỗi ${}) ====================
 const moveOrdersRef = ref(db, 'move_orders');
 onChildAdded(moveOrdersRef, (snapshot) => {{
     const order = snapshot.val();
@@ -1523,7 +1507,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
     document.body.appendChild(clearBtn);
 }}
 
-// ==================== TOOLBAR CHO COMMANDER/ADMIN (vẽ + xoá alerts) ====================
+// ==================== TOOLBAR CHO COMMANDER/ADMIN ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const toolbar = L.control({{ position: 'topright' }});
     toolbar.onAdd = () => {{
@@ -1583,13 +1567,12 @@ if (userRole === 'commander' || userRole === 'admin') {{
     document.getElementById('clear-all-alerts').addEventListener('click', async () => {{
         if (confirm('Xoá tất cả báo động đang hiển thị?')) {{
             await remove(alertsRef);
-            // Xoá các marker khỏi map
             Object.keys(alertMarkers).forEach(id => removeAlertMarker(id));
         }}
     }});
 }}
 
-// ==================== CHẾ ĐỘ VẼ MŨI TÊN CHO OFFICER ====================
+// ==================== CHẾ ĐỘ VẼ MŨI TÊN CHO OFFICER (đã sửa lỗi myName) ====================
 if (userRole === 'officer') {{
     const arrowToolbar = L.control({{ position: 'topright' }});
     arrowToolbar.onAdd = () => {{
@@ -1607,7 +1590,6 @@ if (userRole === 'officer') {{
     const arrowToggle = document.getElementById('arrow-toggle');
     arrowToggle.addEventListener('click', () => {{
         if (arrowMode) {{
-            // Thoát chế độ vẽ mũi tên
             arrowMode = false;
             arrowToggle.style.background = '#ff0000';
             arrowToggle.style.color = 'white';
@@ -1615,7 +1597,6 @@ if (userRole === 'officer') {{
             arrowStart = null;
             map.getContainer().style.cursor = '';
         }} else {{
-            // Bắt đầu chế độ vẽ mũi tên
             arrowMode = true;
             arrowToggle.style.background = '#cc0000';
             arrowToggle.style.color = 'white';
@@ -1629,18 +1610,13 @@ if (userRole === 'officer') {{
         if (!arrowMode) return;
         const {{ lat, lng }} = e.latlng;
         if (arrowStart === null) {{
-            // Điểm đầu
             arrowStart = [lat, lng];
-            // Vẽ tạm một điểm tròn
             arrowTempLine = L.circleMarker(arrowStart, {{ radius: 8, color: 'red', fillColor: 'red', fillOpacity: 0.7 }}).addTo(map);
         }} else {{
-            // Điểm cuối -> tạo mũi tên và báo động
             const start = arrowStart;
             const end = [lat, lng];
-            // Vẽ mũi tên đỏ
             const arrowLine = L.polyline([start, end], {{ color: 'red', weight: 4, opacity: 0.9 }}).addTo(map);
             if (arrowLine.arrowheads) arrowLine.arrowheads({{ size: '15px', frequency: 'all', color: 'red' }});
-            // Lưu vào drawings để đồng bộ (có type arrow)
             const drawingData = {{
                 points: [{{ lat: start[0], lng: start[1] }}, {{ lat: end[0], lng: end[1] }}],
                 color: 'red',
@@ -1652,9 +1628,9 @@ if (userRole === 'officer') {{
             }};
             push(ref(db, 'drawings'), drawingData);
 
-            // Tạo báo động tại điểm cuối
+            // Tạo báo động - đã sửa ${myName} thành ${{myName}}
             const alertData = {{
-                name: `Hướng di chuyển từ ${myName}`,
+                name: `Hướng di chuyển từ ${{myName}}`,
                 lat: end[0],
                 lng: end[1],
                 assigned: [],
@@ -1665,7 +1641,6 @@ if (userRole === 'officer') {{
             }};
             push(ref(db, 'alerts'), alertData);
 
-            // Reset chế độ
             arrowMode = false;
             arrowToggle.style.background = '#ff0000';
             map.getContainer().style.cursor = '';
@@ -1677,7 +1652,7 @@ if (userRole === 'officer') {{
     map.on('click', handleArrowClick);
 }}
 
-// ==================== DRAWINGS - INCREMENTAL (bao gồm cả arrow) ====================
+// ==================== DRAWINGS - INCREMENTAL ====================
 let drawingLayers = {{}};
 const drawingsRef = ref(db, 'drawings');
 const recentDrawingsQuery = query(drawingsRef, limitToLast(50));
@@ -1744,7 +1719,7 @@ onChildRemoved(recentDrawingsQuery, (snapshot) => {{
     }}
 }});
 
-// ==================== DIALOG THÊM ĐIỂM ====================
+// ==================== DIALOG THÊM ĐIỂM (giữ nguyên) ====================
 function showPointDialog(latlng) {{
     if (drawingMode || arrowMode) return;
     const oldOverlay = document.getElementById('dialog-overlay');
@@ -1873,7 +1848,7 @@ map.on('touchstart', (e) => {{
 map.on('touchend', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 map.on('touchcancel', () => {{ if (touchTimer) clearTimeout(touchTimer); }});
 
-// ==================== RA LỆNH TỪ SIDEBAR (chỉ commander/admin) ====================
+// ==================== RA LỆNH TỪ SIDEBAR ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     function activateSelectionMode(officerId, officerName) {{
         if (selectionMode) return;
