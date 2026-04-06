@@ -1264,7 +1264,7 @@ stationaryOfficers.forEach(officer => {{
     }}
 }});
 
-// ==================== ALERTS (giữ nguyên nhưng đã sửa lỗi ${} ====================
+// ==================== ALERTS (giữ nguyên nhưng đã sửa lỗi ${{}} ====================
 const alertsRef = ref(db, 'alerts');
 const oneDayAgo = Date.now() - 24*60*60*1000;
 const playedAlerts = new Set(JSON.parse(sessionStorage.getItem("playedAlerts") || "[]"));
