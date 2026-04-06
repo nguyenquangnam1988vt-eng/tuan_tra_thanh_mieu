@@ -1653,7 +1653,7 @@ if (userRole === 'officer') {{
 }}
 
 // ==================== DRAWINGS - INCREMENTAL ====================
-let drawingLayers = {};
+let drawingLayers = {{}};
 const drawingsRef = ref(db, 'drawings');
 
 // DELETE
