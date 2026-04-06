@@ -1711,7 +1711,7 @@ onChildAdded(recentDrawingsQuery, (snapshot) => {{
     polyline.bindPopup(popupContent);
     drawingLayers[id] = polyline;
 }});
-onChildRemoved(drawingsRef, (snapshot) => {
+onChildRemoved(recentDrawingsQuery, (snapshot) => {
     const id = snapshot.key;
     if (drawingLayers[id]) {{
         map.removeLayer(drawingLayers[id]);
