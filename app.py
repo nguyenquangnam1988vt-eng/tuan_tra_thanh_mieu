@@ -1628,7 +1628,7 @@ if (userRole === 'officer') {{
             }};
             push(ref(db, 'drawings'), drawingData);
 
-            // Tạo báo động - đã sửa ${myName} thành ${{myName}}
+            // Tạo báo động 
             const alertData = {{
                 name: `Hướng di chuyển từ ${{myName}}`,
                 lat: end[0],
