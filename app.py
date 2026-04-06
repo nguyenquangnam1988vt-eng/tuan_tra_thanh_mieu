@@ -1657,18 +1657,18 @@ let drawingLayers = {{}};
 const drawingsRef = ref(db, 'drawings');
 
 // DELETE
-document.addEventListener('click', async (e) => {
-    if (e.target && e.target.classList.contains('delete-drawing')) {
+document.addEventListener('click', async (e) => {{
+    if (e.target && e.target.classList.contains('delete-drawing')) {{
         const id = e.target.getAttribute('data-id');
         if (!id) return;
-        if (confirm("Xóa nét vẽ này?")) {
+        if (confirm("Xóa nét vẽ này?")) {{
             await remove(ref(db, 'drawings/' + id));
-        }
-    }
-});
+        }}
+    }}
+}});
 
-// ADD (Firebase tự load toàn bộ luôn)
-onChildAdded(drawingsRef, (snapshot) => {
+// ADD
+onChildAdded(drawingsRef, (snapshot) => {{
     const id = snapshot.key;
     const drawing = snapshot.val();
     if (!drawing || !drawing.points || drawing.points.length < 2) return;
@@ -1676,52 +1676,52 @@ onChildAdded(drawingsRef, (snapshot) => {
 
     const latlngs = drawing.points.map(p => [p.lat, p.lng]);
 
-    const polyline = L.polyline(latlngs, {
+    const polyline = L.polyline(latlngs, {{
         color: drawing.color || '#ff0000',
         weight: drawing.weight || 3,
         opacity: 0.8
-    }).addTo(map);
+    }}).addTo(map);
 
-    if (drawing.type === 'arrow' && polyline.arrowheads) {
-        polyline.arrowheads({
+    if (drawing.type === 'arrow' && polyline.arrowheads) {{
+        polyline.arrowheads({{
             size: '15px',
             frequency: 'all',
             color: drawing.color || 'red'
-        });
-    }
+        }});
+    }}
 
     let popupContent = `✏️ Vẽ bởi: ${drawing.author}<br>${new Date(drawing.timestamp).toLocaleString()}`;
     const canDelete = (userRole === 'commander' || userRole === 'admin' || drawing.authorId === myUsername);
 
-    if (canDelete) {
+    if (canDelete) {{
         popupContent += `<br><button class="delete-drawing" data-id="${id}">🗑️ Xóa nét vẽ</button>`;
-    }
+    }}
 
     polyline.bindPopup(popupContent);
     drawingLayers[id] = polyline;
-});
+}});
 
 // REMOVE realtime
-onChildRemoved(drawingsRef, (snapshot) => {
+onChildRemoved(drawingsRef, (snapshot) => {{
     const id = snapshot.key;
-    if (drawingLayers[id]) {
+    if (drawingLayers[id]) {{
         map.removeLayer(drawingLayers[id]);
         delete drawingLayers[id];
-    }
-});
+    }}
+}});
 
-// SYNC chống lệch state (rất quan trọng)
-onValue(drawingsRef, (snapshot) => {
-    const data = snapshot.val() || {};
+// SYNC chống lệch
+onValue(drawingsRef, (snapshot) => {{
+    const data = snapshot.val() || {{}};
     const currentIds = new Set(Object.keys(data));
 
-    Object.keys(drawingLayers).forEach(id => {
-        if (!currentIds.has(id)) {
+    Object.keys(drawingLayers).forEach(id => {{
+        if (!currentIds.has(id)) {{
             map.removeLayer(drawingLayers[id]);
             delete drawingLayers[id];
-        }
-    });
-});
+        }}
+    }});
+}});
 
 // ==================== DIALOG THÊM ĐIỂM (giữ nguyên) ====================
 function showPointDialog(latlng) {{
