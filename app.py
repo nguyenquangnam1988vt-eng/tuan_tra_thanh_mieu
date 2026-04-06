@@ -755,7 +755,6 @@ if user_role in ["commander", "admin"]:
                     st.success("Đã xóa toàn bộ ghi chú!")
                 except Exception as e:
                     st.error(f"Lỗi xóa: {e}")
-            # BỔ SUNG: nút xóa tất cả ảnh hiện trường
             if st.button("📸 Xóa tất cả ảnh hiện trường", key="delete_all_incidents"):
                 try:
                     db.child("incidents").remove()
@@ -922,7 +921,7 @@ else:
     order_js = "<script>window.pendingOrder = null;</script>"
 
 # ==============================
-# 16. MAP HTML (đã bao gồm NoSleep với click & touch)
+# 16. MAP HTML (đã bao gồm NoSleep, vẽ mũi tên cho officer, nút xoá tất cả báo động)
 # ==============================
 map_html = f"""
 <!DOCTYPE html><html> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"> 
@@ -1038,6 +1037,11 @@ let tempPoints = [];
 let tempPolyline = null;
 let drawingColor = '#ff0000';
 let drawingWeight = 3;
+
+// Biến cho chế độ vẽ mũi tên của officer
+let arrowMode = false;
+let arrowStart = null;
+let arrowTempLine = null;
 
 let renderTimeout = null;
 const RENDER_DEBOUNCE = 100;
@@ -1193,7 +1197,7 @@ function initMap() {{
     }}
 }}
 
-// ==================== KÍCH HOẠT NoSleep (giữ màn hình sáng) ====================
+// ==================== KÍCH HOẠT NoSleep ====================
 let noSleep = new NoSleep();
 function enableNoSleep() {{
     noSleep.enable();
@@ -1225,7 +1229,7 @@ document.addEventListener("click", () => {{
     }}
 }});
 
-// Khởi tạo allOfficers từ dữ liệu ban đầu (đảm bảo Commander hiện ngay)
+// Khởi tạo allOfficers
 for (const [uid, officer] of Object.entries(initialOfficers)) {{
     if (officer && isValidVNCoordinate(officer.lat, officer.lng)) {{
         allOfficers[uid] = officer;
@@ -1233,7 +1237,7 @@ for (const [uid, officer] of Object.entries(initialOfficers)) {{
 }}
 scheduleRender();
 
-// Lắng nghe realtime từ Firebase
+// Lắng nghe realtime
 const officersRef = ref(db, 'officers');
 onDisconnect(ref(db, 'officers/' + myUsername)).remove();
 
@@ -1499,7 +1503,7 @@ function zoomToAllOfficers() {{
 }}
 setTimeout(zoomToAllOfficers, 2000);
 
-// ==================== NÚT XOÁ TOÀN BỘ LỆNH DI CHUYỂN ====================
+// ==================== NÚT XOÁ TẤT CẢ LỆNH DI CHUYỂN ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const clearBtn = document.createElement('button');
     clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ (lệnh di chuyển)';
@@ -1519,7 +1523,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
     document.body.appendChild(clearBtn);
 }}
 
-// ==================== DRAWING TOOLBAR (chỉ commander/admin) ====================
+// ==================== TOOLBAR CHO COMMANDER/ADMIN (vẽ + xoá alerts) ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const toolbar = L.control({{ position: 'topright' }});
     toolbar.onAdd = () => {{
@@ -1531,6 +1535,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
                 <input type="color" id="draw-color" value="${{drawingColor}}" style="width:30px; height:30px; margin:2px;">
                 <input type="range" id="draw-weight" min="2" max="10" step="1" value="${{drawingWeight}}" style="width:80px; margin:2px;">
                 <button id="clear-all-drawings" style="margin:2px; padding:4px 8px; background:#ff4444; color:white;">🗑️ Xóa tất cả nét vẽ</button>
+                <button id="clear-all-alerts" style="margin:2px; padding:4px 8px; background:#ff4444; color:white;">🚨 Xoá tất cả báo động</button>
             </div>
         `;
         L.DomEvent.disableClickPropagation(div);
@@ -1575,79 +1580,104 @@ if (userRole === 'commander' || userRole === 'admin') {{
             await remove(ref(db, 'drawings'));
         }}
     }});
+    document.getElementById('clear-all-alerts').addEventListener('click', async () => {{
+        if (confirm('Xoá tất cả báo động đang hiển thị?')) {{
+            await remove(alertsRef);
+            // Xoá các marker khỏi map
+            Object.keys(alertMarkers).forEach(id => removeAlertMarker(id));
+        }}
+    }});
 }}
 
-function startDrawing() {{
-    tempPoints = [];
-    if (tempPolyline) map.removeLayer(tempPolyline);
-    const info = L.control({{ position: 'bottomleft' }});
-    info.onAdd = () => {{
-        const div = L.DomUtil.create('div', 'drawing-info');
-        div.innerHTML = '🎨 Đang vẽ: chạm (tap) để thêm điểm, bấm "Hoàn tất" để kết thúc.';
+// ==================== CHẾ ĐỘ VẼ MŨI TÊN CHO OFFICER ====================
+if (userRole === 'officer') {{
+    const arrowToolbar = L.control({{ position: 'topright' }});
+    arrowToolbar.onAdd = () => {{
+        const div = L.DomUtil.create('div', 'drawing-toolbar');
+        div.innerHTML = `
+            <div style="background:white; padding:8px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+                <button id="arrow-toggle" style="margin:2px; padding:4px 8px; background:#ff0000; color:white;">🚨 Báo hướng đối tượng</button>
+            </div>
+        `;
+        L.DomEvent.disableClickPropagation(div);
         return div;
     }};
-    info.addTo(map);
-    window.drawingInfo = info;
+    arrowToolbar.addTo(map);
 
-    function addPoint(e) {{
+    const arrowToggle = document.getElementById('arrow-toggle');
+    arrowToggle.addEventListener('click', () => {{
+        if (arrowMode) {{
+            // Thoát chế độ vẽ mũi tên
+            arrowMode = false;
+            arrowToggle.style.background = '#ff0000';
+            arrowToggle.style.color = 'white';
+            if (arrowTempLine) map.removeLayer(arrowTempLine);
+            arrowStart = null;
+            map.getContainer().style.cursor = '';
+        }} else {{
+            // Bắt đầu chế độ vẽ mũi tên
+            arrowMode = true;
+            arrowToggle.style.background = '#cc0000';
+            arrowToggle.style.color = 'white';
+            map.getContainer().style.cursor = 'crosshair';
+            arrowStart = null;
+            if (arrowTempLine) map.removeLayer(arrowTempLine);
+        }}
+    }});
+
+    function handleArrowClick(e) {{
+        if (!arrowMode) return;
         const {{ lat, lng }} = e.latlng;
-        tempPoints.push([lat, lng]);
-        if (tempPolyline) map.removeLayer(tempPolyline);
-        tempPolyline = L.polyline(tempPoints, {{ color: drawingColor, weight: drawingWeight, opacity: 0.8 }}).addTo(map);
-    }}
-    function addPointOnTouch(e) {{
-        if (e.originalEvent.touches && e.originalEvent.touches.length === 1) {{
-            const touch = e.originalEvent.touches[0];
-            const latlng = map.mouseEventToLatLng(touch);
-            addPoint({{ latlng }});
-            e.originalEvent.preventDefault();
+        if (arrowStart === null) {{
+            // Điểm đầu
+            arrowStart = [lat, lng];
+            // Vẽ tạm một điểm tròn
+            arrowTempLine = L.circleMarker(arrowStart, {{ radius: 8, color: 'red', fillColor: 'red', fillOpacity: 0.7 }}).addTo(map);
+        }} else {{
+            // Điểm cuối -> tạo mũi tên và báo động
+            const start = arrowStart;
+            const end = [lat, lng];
+            // Vẽ mũi tên đỏ
+            const arrowLine = L.polyline([start, end], {{ color: 'red', weight: 4, opacity: 0.9 }}).addTo(map);
+            if (arrowLine.arrowheads) arrowLine.arrowheads({{ size: '15px', frequency: 'all', color: 'red' }});
+            // Lưu vào drawings để đồng bộ (có type arrow)
+            const drawingData = {{
+                points: [{{ lat: start[0], lng: start[1] }}, {{ lat: end[0], lng: end[1] }}],
+                color: 'red',
+                weight: 4,
+                author: myName,
+                authorId: myUsername,
+                timestamp: Date.now(),
+                type: 'arrow'
+            }};
+            push(ref(db, 'drawings'), drawingData);
+
+            // Tạo báo động tại điểm cuối
+            const alertData = {{
+                name: `Hướng di chuyển từ ${myName}`,
+                lat: end[0],
+                lng: end[1],
+                assigned: [],
+                status: 'pending',
+                timestamp: Date.now(),
+                created_by: myUsername,
+                arrowAlert: true
+            }};
+            push(ref(db, 'alerts'), alertData);
+
+            // Reset chế độ
+            arrowMode = false;
+            arrowToggle.style.background = '#ff0000';
+            map.getContainer().style.cursor = '';
+            if (arrowTempLine) map.removeLayer(arrowTempLine);
+            arrowStart = null;
+            alert('Đã gửi báo hướng di chuyển!');
         }}
     }}
-    function deactivateDrawing() {{
-        map.off('click', addPoint);
-        map.off('touchstart', addPointOnTouch);
-        if (window.drawingInfo) map.removeControl(window.drawingInfo);
-        if (tempPolyline) map.removeLayer(tempPolyline);
-        tempPoints = [];
-        tempPolyline = null;
-        drawingMode = false;
-        const drawToggle = document.getElementById('draw-toggle');
-        if (drawToggle) {{
-            drawToggle.style.background = '';
-            drawToggle.style.color = '';
-        }}
-        const drawFinish = document.getElementById('draw-finish');
-        if (drawFinish) drawFinish.style.display = 'none';
-    }}
-    map.on('click', addPoint);
-    map.on('touchstart', addPointOnTouch);
-    window.deactivateDrawing = deactivateDrawing;
+    map.on('click', handleArrowClick);
 }}
 
-function cancelDrawing() {{
-    if (window.deactivateDrawing) window.deactivateDrawing();
-}}
-
-async function saveDrawing() {{
-    if (tempPoints.length < 2) return;
-    const drawing = {{
-        points: tempPoints.map(p => ({{ lat: p[0], lng: p[1] }})),
-        color: drawingColor,
-        weight: drawingWeight,
-        author: myName,
-        authorId: myUsername,
-        timestamp: Date.now()
-    }};
-    try {{
-        await push(ref(db, 'drawings'), drawing);
-        console.log("🟢 Đã lưu nét vẽ:", drawing);
-    }} catch (err) {{
-        console.error("❌ Lỗi lưu drawing:", err);
-    }}
-    cancelDrawing();
-}}
-
-// ==================== DRAWINGS - INCREMENTAL ====================
+// ==================== DRAWINGS - INCREMENTAL (bao gồm cả arrow) ====================
 let drawingLayers = {{}};
 const drawingsRef = ref(db, 'drawings');
 const recentDrawingsQuery = query(drawingsRef, limitToLast(50));
@@ -1672,6 +1702,9 @@ get(recentDrawingsQuery).then((snapshot) => {{
             weight: drawing.weight || 3,
             opacity: 0.8
         }}).addTo(map);
+        if (drawing.type === 'arrow' && polyline.arrowheads) {{
+            polyline.arrowheads({{ size: '15px', frequency: 'all', color: drawing.color || 'red' }});
+        }}
         let popupContent = `✏️ Vẽ bởi: ${{drawing.author}}<br>${{new Date(drawing.timestamp).toLocaleString()}}`;
         const canDelete = (userRole === 'commander' || userRole === 'admin' || drawing.authorId === myUsername);
         if (canDelete) {{
@@ -1692,6 +1725,9 @@ onChildAdded(recentDrawingsQuery, (snapshot) => {{
         weight: drawing.weight || 3,
         opacity: 0.8
     }}).addTo(map);
+    if (drawing.type === 'arrow' && polyline.arrowheads) {{
+        polyline.arrowheads({{ size: '15px', frequency: 'all', color: drawing.color || 'red' }});
+    }}
     let popupContent = `✏️ Vẽ bởi: ${{drawing.author}}<br>${{new Date(drawing.timestamp).toLocaleString()}}`;
     const canDelete = (userRole === 'commander' || userRole === 'admin' || drawing.authorId === myUsername);
     if (canDelete) {{
@@ -1710,7 +1746,7 @@ onChildRemoved(recentDrawingsQuery, (snapshot) => {{
 
 // ==================== DIALOG THÊM ĐIỂM ====================
 function showPointDialog(latlng) {{
-    if (drawingMode) return;
+    if (drawingMode || arrowMode) return;
     const oldOverlay = document.getElementById('dialog-overlay');
     if (oldOverlay) oldOverlay.remove();
     const overlay = document.createElement('div');
@@ -1821,13 +1857,13 @@ function showPointDialog(latlng) {{
 }}
 
 map.on('contextmenu', (e) => {{
-    if (selectionMode || drawingMode) return;
+    if (selectionMode || drawingMode || arrowMode) return;
     e.originalEvent.preventDefault();
     showPointDialog(e.latlng);
 }});
 let touchTimer = null;
 map.on('touchstart', (e) => {{
-    if (selectionMode || drawingMode) return;
+    if (selectionMode || drawingMode || arrowMode) return;
     const touch = e.originalEvent.touches[0];
     const latlng = map.mouseEventToLatLng(touch);
     touchTimer = setTimeout(() => {{
