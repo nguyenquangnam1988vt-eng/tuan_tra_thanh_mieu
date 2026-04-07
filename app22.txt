@@ -1490,7 +1490,7 @@ setTimeout(zoomToAllOfficers, 2000);
 // ==================== NÚT XOÁ TẤT CẢ LỆNH DI CHUYỂN ====================
 if (userRole === 'commander' || userRole === 'admin') {{
     const clearBtn = document.createElement('button');
-    clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ (lệnh di chuyển)';
+    clearBtn.textContent = '🗑️ Xoá tất cả nét vẽ di chuyển và vẽ sơ đồ';
     clearBtn.className = 'clear-orders-btn';
     clearBtn.onclick = async () => {{
         if (confirm('Bạn có chắc muốn xoá TOÀN BỘ lệnh di chuyển đang hoạt động?')) {{
@@ -1518,7 +1518,7 @@ if (userRole === 'commander' || userRole === 'admin') {{
                 <button id="draw-finish" style="margin:2px; padding:4px 8px; display:none; background:#4caf50; color:white;">✅ Hoàn tất</button>
                 <input type="color" id="draw-color" value="${{drawingColor}}" style="width:30px; height:30px; margin:2px;">
                 <input type="range" id="draw-weight" min="2" max="10" step="1" value="${{drawingWeight}}" style="width:80px; margin:2px;">
-                <button id="clear-all-drawings" style="margin:2px; padding:4px 8px; background:#ff4444; color:white;">🗑️ Xóa tất cả nét vẽ</button>
+                <button id="clear-all-drawings" style="margin:2px; padding:4px 8px; background:#ff4444; color:white;">🗑️ Xóa tất cả vẽ hướng đối tượng</button>
                 <button id="clear-all-alerts" style="margin:2px; padding:4px 8px; background:#ff4444; color:white;">🚨 Xoá tất cả báo động</button>
             </div>
         `;
